@@ -352,9 +352,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--root-folder", help="lidarr root folder (default: first)")
     p.add_argument("--state", help="state file (default: <csv>.chartarr.jsonl)")
     p.add_argument("--example", action="store_true",
-                   help="write sample.csv here to try things out")
+                   help="write sample.csv to the current directory")
     p.add_argument("--demo", action="store_true",
-                   help="poke at the review screen with canned data")
+                   help="open the review screen with sample data")
     p.add_argument("--version", action="version", version=f"chartarr {__version__}")
     return p
 
