@@ -42,8 +42,8 @@ The environment variables `LIDARR_URL` and `LIDARR_API_KEY` take
 precedence over the file.
 
 To try it without your own data: `chartarr --example` writes a small
-sample CSV, and `chartarr --demo` opens the review screen with sample
-data without saving anything.
+sample CSV, and `chartarr --demo` simulates a full run (match, review,
+push) on sample data without saving or sending anything.
 
 ## Options
 
@@ -54,7 +54,7 @@ data without saving anything.
     --review-only       run only the review stage
     --push-only         run only the push stage
     --example           write sample.csv to the current directory
-    --demo              open the review screen with sample data
+    --demo              simulate a full run with sample data
     --quality-profile   Lidarr quality profile (default: first)
     --metadata-profile  Lidarr metadata profile (default: first)
     --root-folder       Lidarr root folder (default: first)
