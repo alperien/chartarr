@@ -18,6 +18,20 @@ TITLE_COLS = ("title", "album", "album_title", "release", "name")
 
 BLOCKS = "▁▂▃▄▅▆▇█"
 
+EXAMPLE_CSV = """\
+rank,title,artist,release_date,genres
+1,OK Computer,Radiohead,16 June 1997,"Alternative Rock, Art Rock"
+2,To Pimp a Butterfly,Kendrick Lamar,15 March 2015,"Conscious Hip Hop, Jazz Rap"
+3,★ [Blackstar],David Bowie,8 January 2016,"Art Rock, Experimental Rock"
+4,F♯A♯∞,Godspeed You Black Emperor!,14 August 1997,"Post-Rock"
+5,Piñata,Freddie Gibbs & Madlib,18 March 2014,"Gangsta Rap, Abstract Hip Hop"
+6,Ágætis byrjun,Sigur Rós,12 June 1999,"Post-Rock, Dream Pop"
+7,Kind of Blue,Miles Davis,17 August 1959,"Modal Jazz, Cool Jazz"
+8,Rumours,Fleetwood Mac,4 February 1977,"Pop Rock, Soft Rock"
+9,Clube da esquina,Milton Nascimento & Lô Borges,March 1972,"MPB, Psychedelic Pop"
+10,Spiderland,Slint,27 March 1991,"Post-Rock, Math Rock"
+"""
+
 
 # terminal
 
@@ -337,12 +351,22 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--metadata-profile", help="lidarr metadata profile (default: first)")
     p.add_argument("--root-folder", help="lidarr root folder (default: first)")
     p.add_argument("--state", help="state file (default: <csv>.chartarr.jsonl)")
+    p.add_argument("--example", action="store_true",
+                   help="write sample.csv here to try things out")
     p.add_argument("--version", action="version", version=f"chartarr {__version__}")
     return p
 
 
 def main(argv=None) -> None:
     args = build_parser().parse_args(argv)
+
+    if args.example:
+        p = Path("sample.csv")
+        if p.exists():
+            fail("sample.csv already exists here")
+        p.write_text(EXAMPLE_CSV, encoding="utf-8")
+        print("wrote sample.csv — try: chartarr sample.csv --dry-run")
+        return
 
     cfg = load_config()
     if args.setup:
