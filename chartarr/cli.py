@@ -11,7 +11,7 @@ import sys
 from collections import Counter
 from pathlib import Path
 
-from . import __version__, demo, lidarr, matcher, review
+from . import __version__, demo, lidarr, matcher, review, screen
 
 ARTIST_COLS = ("artist", "artists", "artist_name", "albumartist", "album artist")
 TITLE_COLS = ("title", "album", "album_title", "release", "name")
@@ -37,6 +37,10 @@ rank,title,artist,release_date,genres
 
 def _color() -> bool:
     return sys.stdout.isatty() and not os.environ.get("NO_COLOR")
+
+
+def _screen_ok() -> bool:
+    return sys.stdin.isatty() and sys.stdout.isatty() and screen.available()
 
 
 def accent(s) -> str:
@@ -196,19 +200,32 @@ def stage_match(rows, artist_col, title_col, state: State) -> None:
         return
     mins = len(pending) * 1.1 / 60
     print(f"matching {_n(len(pending), 'album')} against musicbrainz "
-          + dim(f"(about {max(1, round(mins))} min, ctrl-c resumes)"))
-    counts = Counter(r["status"] for r in state.results.values())
-    for i, (row, result) in enumerate(matcher.iter_match(pending, artist_col, title_col), 1):
-        state.add_result(row["_key"], result)
-        counts[result["status"]] += 1
-        done = sum(counts.values())
-        pct = counts.get("matched", 0) / done if done else 0
-        status(f"  {i}/{len(pending)}  ok {pct:.0%}  "
-               f"{_one_line(row[artist_col])} — {_one_line(row[title_col])}")
-    status_end()
+          + dim(f"(about {max(1, round(mins))} min, q or ctrl-c stops, rerun resumes)"))
+    base = Counter(r["status"] for r in state.results.values())
+
+    def events():
+        for row, result in matcher.iter_match(pending, artist_col, title_col):
+            state.add_result(row["_key"], result)
+            yield (f"{_one_line(row[artist_col])} — {_one_line(row[title_col])}",
+                   result["status"])
+
+    stopped = False
+    if _screen_ok():
+        counts, stopped = screen.match_screen(events(), len(pending), base)
+    else:
+        counts = dict(base)
+        for i, (label, st) in enumerate(events(), 1):
+            counts[st] = counts.get(st, 0) + 1
+            done = sum(counts.values())
+            pct = counts.get("matched", 0) / done if done else 0
+            status(f"  {i}/{len(pending)}  ok {pct:.0%}  {label}")
+        status_end()
     print(f"matched {accent(counts.get('matched', 0))} · "
           f"review {accent(counts.get('review', 0))} · "
           f"not found {accent(counts.get('not_found', 0))}")
+    if stopped:
+        print(dim("stopped — progress is saved, rerun to resume"))
+        sys.exit(0)
 
 
 def stage_review(rows, artist_col, title_col, state: State) -> None:
@@ -281,20 +298,28 @@ def stage_push(items, artist_col, title_col, args, cfg) -> None:
     print(f"pushing {_n(len(items), 'album')} to lidarr "
           + dim(f"({qp['name']}, {rf['path']})"))
 
-    counts: Counter = Counter()
-    failures = []
-    for i, it in enumerate(items, 1):
-        row = it["row"]
-        name = f"{_one_line(row[artist_col])} — {_one_line(row[title_col])}"
-        try:
-            outcome = api.add_album(it["rgid"], qp["id"], mp["id"], rf["path"],
-                                    search=args.search)
-            counts[outcome] += 1
+    def events():
+        for it in items:
+            row = it["row"]
+            name = f"{_one_line(row[artist_col])} — {_one_line(row[title_col])}"
+            try:
+                outcome = api.add_album(it["rgid"], qp["id"], mp["id"], rf["path"],
+                                        search=args.search)
+                yield name, outcome, None
+            except lidarr.LidarrError as e:
+                yield name, "failed", str(e)
+
+    stopped = False
+    if _screen_ok():
+        counts, failures, stopped = screen.push_screen(events(), len(items))
+    else:
+        counts, failures = {}, []
+        for i, (name, outcome, err) in enumerate(events(), 1):
+            counts[outcome] = counts.get(outcome, 0) + 1
+            if err:
+                failures.append(f"{name}: {err}")
             status(f"  {i}/{len(items)}  {outcome}  {name}")
-        except lidarr.LidarrError as e:
-            counts["failed"] += 1
-            failures.append(f"{name}: {e}")
-    status_end()
+        status_end()
     line = (f"added {accent(counts.get('added', 0))} · "
             f"monitored {accent(counts.get('monitored', 0))} · "
             f"already there {accent(counts.get('skipped', 0))}")
@@ -305,6 +330,9 @@ def stage_push(items, artist_col, title_col, args, cfg) -> None:
         print(dim(f"  {f_}"))
     if len(failures) > 8:
         print(dim(f"  … and {len(failures) - 8} more"))
+    if stopped:
+        print(dim("stopped — the push is safe to rerun"))
+        sys.exit(0)
 
 
 def _year(value: str):

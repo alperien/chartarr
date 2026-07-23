@@ -1,10 +1,7 @@
 """review screen: a list of uncertain matches, enter accepts the best guess."""
 from __future__ import annotations
 
-try:
-    import curses
-except ImportError:  # native windows python without windows-curses
-    curses = None
+from .screen import _fit, _put, _run, available, curses
 
 
 def run(items, artist_col, title_col, on_decision):
@@ -14,27 +11,10 @@ def run(items, artist_col, title_col, on_decision):
     candidate, s skips, a accepts every remaining suggestion, q finishes.
     picking again on a decided row replaces the earlier decision.
     """
-    if curses is None:
+    if not available():
         print("the review screen needs curses (on windows: pip install windows-curses)")
         return
-    import locale
-
-    locale.setlocale(locale.LC_ALL, "")
-    curses.wrapper(_loop, items, artist_col, title_col, on_decision)
-
-
-def _fit(s, width):
-    s = str(s).replace("\n", " / ")
-    if width < 2:
-        return ""
-    return s if len(s) <= width else s[: width - 1] + "…"
-
-
-def _put(scr, y, x, s, attr=0):
-    try:
-        scr.addstr(y, x, s, attr)
-    except curses.error:
-        pass
+    _run(_loop, items, artist_col, title_col, on_decision)
 
 
 def _loop(scr, items, artist_col, title_col, on_decision):
