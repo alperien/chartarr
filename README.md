@@ -23,18 +23,22 @@ This runs three stages:
 
 1. **Match.** Each artist/title pair is looked up on MusicBrainz.
    Requests are limited to one per second, per the MusicBrainz rate
-   limit. Progress is saved to `<csv>.chartarr.jsonl`; interrupted runs
-   resume where they left off.
+   limit. A fullscreen progress view shows the bar, running totals and
+   the most recent lookups; press q to stop. Progress is saved to
+   `<csv>.chartarr.jsonl`; interrupted runs resume where they left off.
 2. **Review.** Uncertain matches are shown in an interactive list.
    Arrow keys move, Enter accepts the suggested match, 1-3 select an
    alternative, s skips a row, a accepts all suggestions, q finishes.
    Decisions are saved immediately and can be changed by selecting a
    row again.
-3. **Push.** Matched albums are added to Lidarr as monitored albums.
-   Each artist is added with monitoring disabled, so only the listed
-   albums are monitored. Albums already in Lidarr are skipped; albums
-   Lidarr knows but does not monitor are set to monitored. This stage
-   is safe to re-run.
+3. **Push.** Matched albums are added to Lidarr as monitored albums,
+   with the same fullscreen progress view. Each artist is added with
+   monitoring disabled, so only the listed albums are monitored.
+   Albums already in Lidarr are skipped; albums Lidarr knows but does
+   not monitor are set to monitored. This stage is safe to re-run.
+
+When output is piped or no terminal is available, the progress screens
+are replaced by plain line output.
 
 On first run, chartarr asks for the Lidarr URL and API key (Settings >
 General > Security) and stores them in `~/.config/chartarr/config.json`.
