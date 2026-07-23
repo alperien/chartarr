@@ -37,6 +37,8 @@ first run asks for your lidarr url and api key (settings > general >
 security) and keeps them in ~/.config/chartarr/config.json.
 
 no csv handy? `chartarr --example` writes a small one to play with.
+just want to see the review screen? `chartarr --demo` — canned data,
+nothing saved, no network.
 
 ## flags
 
@@ -47,6 +49,7 @@ no csv handy? `chartarr --example` writes a small one to play with.
     --review-only    just the review screen
     --push-only      just the push
     --example        write sample.csv to the current directory
+    --demo           open the review screen with canned data
 
 quality profile, metadata profile and root folder default to the first
 of each; override with --quality-profile, --metadata-profile,
