@@ -1,30 +1,59 @@
-"""chartarr — feed your album charts to Lidarr.
-
-Pipeline: match (MusicBrainz) → review (you) → push (Lidarr).
-Every stage is resumable; state lives in <csv>.chartarr.jsonl next to your file.
-"""
+"""chartarr - feed a csv of albums to lidarr."""
 from __future__ import annotations
 
 import argparse
 import csv
 import json
 import os
+import re
+import shutil
 import sys
 from collections import Counter
 from pathlib import Path
 
-from rich.progress import (BarColumn, MofNCompleteColumn, Progress,
-                           SpinnerColumn, TextColumn, TimeRemainingColumn)
-from rich.prompt import Prompt
-
-from . import __version__, lidarr, matcher, review, ui
-from .ui import console
+from . import __version__, lidarr, matcher, review
 
 ARTIST_COLS = ("artist", "artists", "artist_name", "albumartist", "album artist")
 TITLE_COLS = ("title", "album", "album_title", "release", "name")
 
+BLOCKS = "▁▂▃▄▅▆▇█"
 
-# -------------------------------------------------------------------- config
+
+# terminal
+
+def _color() -> bool:
+    return sys.stdout.isatty() and not os.environ.get("NO_COLOR")
+
+
+def accent(s) -> str:
+    return f"\033[36m{s}\033[0m" if _color() else str(s)
+
+
+def dim(s) -> str:
+    return f"\033[2m{s}\033[0m" if _color() else str(s)
+
+
+def status(line: str) -> None:
+    # single updating line; silent when piped
+    if not sys.stdout.isatty():
+        return
+    width = shutil.get_terminal_size().columns - 1
+    sys.stdout.write("\r" + line[:width].ljust(width))
+    sys.stdout.flush()
+
+
+def status_end() -> None:
+    if sys.stdout.isatty():
+        sys.stdout.write("\r" + " " * (shutil.get_terminal_size().columns - 1) + "\r")
+        sys.stdout.flush()
+
+
+def fail(msg: str) -> None:
+    print(f"chartarr: {msg}", file=sys.stderr)
+    sys.exit(1)
+
+
+# config
 
 def config_path() -> Path:
     base = os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config"))
@@ -49,18 +78,16 @@ def load_config() -> dict:
 
 
 def setup_wizard(existing: dict) -> dict:
-    ui.rule("setup")
-    console.print("[dim]stored in[/]", str(config_path()))
-    url = Prompt.ask("Lidarr URL", default=existing.get("lidarr_url", "http://localhost:8686"))
-    key = Prompt.ask("API key [dim](Settings → General → Security)[/]",
-                     default=existing.get("api_key", ""))
-    api = lidarr.Lidarr(url, key)
+    default = existing.get("lidarr_url", "http://localhost:8686")
+    url = input(f"lidarr url [{default}]: ").strip() or default
+    key = input("api key (lidarr: settings > general > security): ").strip() \
+        or existing.get("api_key", "")
     try:
-        status = api.status()
-        ui.ok(f"connected to Lidarr {status.get('version', '')}")
+        version = lidarr.Lidarr(url, key).status().get("version", "")
+        print(dim(f"connected to lidarr {version}"))
     except lidarr.LidarrError as e:
-        ui.error(str(e))
-        if Prompt.ask("save anyway?", choices=["y", "n"], default="n") == "n":
+        print(f"chartarr: {e}", file=sys.stderr)
+        if input("save anyway? [y/N] ").strip().lower() != "y":
             sys.exit(1)
     cfg = {"lidarr_url": url, "api_key": key}
     p = config_path()
@@ -73,11 +100,9 @@ def setup_wizard(existing: dict) -> dict:
     return cfg
 
 
-# --------------------------------------------------------------------- state
+# state: append-only log of match results and review decisions
 
 class State:
-    """Append-only event log: match results and review decisions by row key."""
-
     def __init__(self, path: Path):
         self.path = path
         self.results: dict[str, dict] = {}
@@ -93,7 +118,11 @@ class State:
                     except json.JSONDecodeError:
                         continue
                     if rec.get("type") == "decision":
-                        self.decisions[rec["key"]] = rec["decision"]
+                        d = rec["decision"]
+                        if d.get("action") == "clear":
+                            self.decisions.pop(rec["key"], None)
+                        else:
+                            self.decisions[rec["key"]] = d
                     else:
                         self.results[rec["key"]] = rec
 
@@ -107,11 +136,14 @@ class State:
         self._append(result)
 
     def add_decision(self, key: str, decision: dict) -> None:
-        self.decisions[key] = decision
+        if decision.get("action") == "clear":
+            self.decisions.pop(key, None)
+        else:
+            self.decisions[key] = decision
         self._append({"type": "decision", "key": key, "decision": decision})
 
 
-# ----------------------------------------------------------------------- csv
+# csv
 
 def load_csv(path: Path):
     with path.open(newline="", encoding="utf-8-sig") as f:
@@ -119,16 +151,12 @@ def load_csv(path: Path):
         rows = list(reader)
         cols = reader.fieldnames or []
     if not rows:
-        ui.error(f"{path} has no data rows")
-        sys.exit(1)
+        fail(f"{path} has no data rows")
     lookup = {c.lower().strip(): c for c in cols}
     artist_col = next((lookup[c] for c in ARTIST_COLS if c in lookup), None)
     title_col = next((lookup[c] for c in TITLE_COLS if c in lookup), None)
     if not artist_col or not title_col:
-        ui.error(f"couldn't find artist/title columns in: {', '.join(cols)}")
-        console.print(f"[dim]accepted artist columns: {', '.join(ARTIST_COLS)}[/]")
-        console.print(f"[dim]accepted title columns:  {', '.join(TITLE_COLS)}[/]")
-        sys.exit(1)
+        fail(f"need an artist and a title/album column, found: {', '.join(cols)}")
     rows = [r for r in rows if (r.get(artist_col) or "").strip()
             and (r.get(title_col) or "").strip()]
     key_col = lookup.get("rank") or lookup.get("id")
@@ -137,29 +165,36 @@ def load_csv(path: Path):
     return rows, artist_col, title_col
 
 
-# -------------------------------------------------------------------- stages
+def _one_line(s: str) -> str:
+    return s.splitlines()[0] if s else s
+
+
+def _n(count: int, word: str) -> str:
+    return f"{count} {word}" + ("" if count == 1 else "s")
+
+
+# stages
 
 def stage_match(rows, artist_col, title_col, state: State) -> None:
     pending = [r for r in rows if r["_key"] not in state.results]
     if not pending:
-        ui.ok("matching already complete (delete the .chartarr.jsonl file to redo)")
+        print(dim("matching already done"))
         return
-    ui.rule(f"matching {len(pending)} albums against MusicBrainz")
-    console.print("[dim]~1/sec — MusicBrainz rate limit. Ctrl+C anytime; it resumes.[/]")
+    mins = len(pending) * 1.1 / 60
+    print(f"matching {_n(len(pending), 'album')} against musicbrainz "
+          + dim(f"(about {max(1, round(mins))} min, ctrl-c resumes)"))
     counts = Counter(r["status"] for r in state.results.values())
-    with Progress(SpinnerColumn(), TextColumn("{task.description}"), BarColumn(),
-                  MofNCompleteColumn(), TimeRemainingColumn(),
-                  console=console) as prog:
-        task = prog.add_task("warming up…", total=len(pending))
-        for row, result in matcher.iter_match(pending, artist_col, title_col):
-            state.add_result(row["_key"], result)
-            counts[result["status"]] += 1
-            done = sum(counts.values())
-            pct = counts.get("matched", 0) / done if done else 0
-            name = f"{row[artist_col].splitlines()[0][:24]} — {row[title_col].splitlines()[0][:28]}"
-            prog.update(task, advance=1,
-                        description=f"[bold]{pct:.0%}[/] auto-matched · ♪ {name}")
-    ui.match_summary(counts)
+    for i, (row, result) in enumerate(matcher.iter_match(pending, artist_col, title_col), 1):
+        state.add_result(row["_key"], result)
+        counts[result["status"]] += 1
+        done = sum(counts.values())
+        pct = counts.get("matched", 0) / done if done else 0
+        status(f"  {i}/{len(pending)}  ok {pct:.0%}  "
+               f"{_one_line(row[artist_col])} — {_one_line(row[title_col])}")
+    status_end()
+    print(f"matched {accent(counts.get('matched', 0))} · "
+          f"review {accent(counts.get('review', 0))} · "
+          f"not found {accent(counts.get('not_found', 0))}")
 
 
 def stage_review(rows, artist_col, title_col, state: State) -> None:
@@ -169,10 +204,18 @@ def stage_review(rows, artist_col, title_col, state: State) -> None:
                and k not in state.decisions and k in by_key]
     if not pending:
         return
-    ui.rule(f"review — {len(pending)} uncertain matches")
-    decisions = review.run_review(pending, artist_col, title_col)
-    for key, decision in decisions.items():
-        state.add_decision(key, decision)
+    if not (sys.stdin.isatty() and sys.stdout.isatty()):
+        print(dim(f"{len(pending)} rows need review — rerun in a terminal, "
+                  f"or use --yes to push without them"))
+        return
+    review.run(pending, artist_col, title_col, state.add_decision)
+    picked = sum(1 for _, res in pending
+                 if state.decisions.get(res["key"], {}).get("action") == "accept")
+    skipped = sum(1 for _, res in pending
+                  if state.decisions.get(res["key"], {}).get("action") == "skip")
+    left = len(pending) - picked - skipped
+    print(f"review: {accent(picked)} picked · {accent(skipped)} skipped · "
+          f"{accent(left)} left")
 
 
 def import_set(rows, state: State) -> list[dict]:
@@ -193,91 +236,113 @@ def import_set(rows, state: State) -> list[dict]:
 
 def _pick(items, wanted, label, key="name"):
     if not items:
-        raise lidarr.LidarrError(f"no {label}s configured in Lidarr — create one first")
+        raise lidarr.LidarrError(f"no {label} configured in lidarr")
     if wanted:
         for it in items:
             if it[key].lower() == wanted.lower():
                 return it
-        names = ", ".join(i[key] for i in items)
-        raise lidarr.LidarrError(f"{label} '{wanted}' not found (available: {names})")
+        raise lidarr.LidarrError(
+            f"{label} {wanted!r} not found (have: {', '.join(i[key] for i in items)})")
     return items[0]
 
 
 def stage_push(items, artist_col, title_col, args, cfg) -> None:
     if not items:
-        ui.error("nothing to push — no matched albums yet")
+        print(dim("nothing to push"))
         return
-    ui.rule(f"pushing {len(items)} albums to Lidarr")
     if args.dry_run:
-        for it in items[:15]:
+        print(f"would push {accent(_n(len(items), 'album'))} to lidarr:")
+        for it in items[:12]:
             row = it["row"]
-            console.print(f"  [green]would add[/] "
-                          f"{row[artist_col].splitlines()[0]} — {row[title_col].splitlines()[0]}")
-        if len(items) > 15:
-            console.print(f"  [dim]… and {len(items) - 15} more[/]")
-        ui.ok("dry run — nothing sent")
+            print(f"  {_one_line(row[artist_col])} — {_one_line(row[title_col])}")
+        if len(items) > 12:
+            print(dim(f"  … and {len(items) - 12} more"))
         return
 
     api = lidarr.Lidarr(cfg["lidarr_url"], cfg["api_key"])
-    status = api.status()
-    ui.ok(f"Lidarr {status.get('version', '')}")
+    api.status()
     qp = _pick(api.quality_profiles(), args.quality_profile, "quality profile")
     mp = _pick(api.metadata_profiles(), args.metadata_profile, "metadata profile")
     rf = _pick(api.root_folders(), args.root_folder, "root folder", key="path")
-    console.print(f"[dim]profile {qp['name']} · metadata {mp['name']} · root {rf['path']}[/]")
+    print(f"pushing {_n(len(items), 'album')} to lidarr "
+          + dim(f"({qp['name']}, {rf['path']})"))
 
     counts: Counter = Counter()
-    failures: list[str] = []
-    with Progress(SpinnerColumn(), TextColumn("{task.description}"), BarColumn(),
-                  MofNCompleteColumn(), console=console) as prog:
-        task = prog.add_task("pushing…", total=len(items))
-        for it in items:
-            row = it["row"]
-            label = f"{row[artist_col].splitlines()[0][:24]} — {row[title_col].splitlines()[0][:28]}"
-            try:
-                outcome = api.add_album(it["rgid"], qp["id"], mp["id"], rf["path"],
-                                        search=args.search)
-                counts[outcome] += 1
-            except lidarr.LidarrError as e:
-                counts["failed"] += 1
-                failures.append(f"{label}: {e}")
-            prog.update(task, advance=1, description=f"♪ {label}")
+    failures = []
+    for i, it in enumerate(items, 1):
+        row = it["row"]
+        name = f"{_one_line(row[artist_col])} — {_one_line(row[title_col])}"
+        try:
+            outcome = api.add_album(it["rgid"], qp["id"], mp["id"], rf["path"],
+                                    search=args.search)
+            counts[outcome] += 1
+            status(f"  {i}/{len(items)}  {outcome}  {name}")
+        except lidarr.LidarrError as e:
+            counts["failed"] += 1
+            failures.append(f"{name}: {e}")
+    status_end()
+    line = (f"added {accent(counts.get('added', 0))} · "
+            f"monitored {accent(counts.get('monitored', 0))} · "
+            f"already there {accent(counts.get('skipped', 0))}")
+    if counts.get("failed"):
+        line += f" · failed {accent(counts['failed'])}"
+    print(line)
+    for f_ in failures[:8]:
+        print(dim(f"  {f_}"))
+    if len(failures) > 8:
+        print(dim(f"  … and {len(failures) - 8} more"))
 
-    ui.push_summary(counts)
-    for f in failures[:10]:
-        console.print(f"  [red]✗[/] {f}")
-    if len(failures) > 10:
-        console.print(f"  [dim]… and {len(failures) - 10} more failures[/]")
+
+def _year(value: str):
+    m = re.search(r"\b(18|19|20)\d{2}\b", value or "")
+    return int(m.group(0)) if m else None
 
 
-# ---------------------------------------------------------------------- main
+def closing_line(rows, artist_col) -> None:
+    artists = {_one_line(r[artist_col]).strip() for r in rows}
+    parts = [f"{_n(len(rows), 'album')}, {_n(len(artists), 'artist')}"]
+    years = [y for r in rows
+             for y in [_year(r.get("release_date") or r.get("year") or "")] if y]
+    if years:
+        decades = Counter((y // 10) * 10 for y in years)
+        top = max(decades.values())
+        lo, hi = min(decades), max(decades)
+        spark = "".join(
+            BLOCKS[max(0, round(decades.get(d, 0) / top * (len(BLOCKS) - 1)))]
+            for d in range(lo, hi + 10, 10))
+        parts.append(f"{min(years)}–{max(years)} {spark}")
+    genres = Counter(g.strip().lower() for r in rows
+                     for g in (r.get("genres") or "").split(",") if g.strip())
+    if genres:
+        parts.append(f"mostly {genres.most_common(1)[0][0]}")
+    print(dim(" · ".join(parts)))
+
+
+# entry
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="chartarr",
-        description="Feed your album charts to Lidarr: match a CSV of albums "
-                    "against MusicBrainz, review the uncertain ones, and add "
-                    "everything as monitored albums.")
-    p.add_argument("csv", nargs="?", help="CSV with artist and title/album columns")
-    p.add_argument("--setup", action="store_true", help="configure Lidarr URL + API key")
+        description="match a csv of albums to musicbrainz and add them to lidarr")
+    p.add_argument("csv", nargs="?", help="csv with artist and title/album columns")
+    p.add_argument("--setup", action="store_true", help="set lidarr url and api key")
     stage = p.add_mutually_exclusive_group()
     stage.add_argument("--match-only", action="store_true", help="stop after matching")
-    stage.add_argument("--review-only", action="store_true", help="only run the review TUI")
-    stage.add_argument("--push-only", action="store_true", help="only push to Lidarr")
-    p.add_argument("--yes", "-y", action="store_true", help="skip review, push matched only")
+    stage.add_argument("--review-only", action="store_true", help="just the review screen")
+    stage.add_argument("--push-only", action="store_true", help="just the push")
+    p.add_argument("--yes", "-y", action="store_true", help="skip review")
     p.add_argument("--dry-run", action="store_true", help="show what would be pushed")
-    p.add_argument("--search", action="store_true", help="tell Lidarr to search for added albums")
-    p.add_argument("--quality-profile", help="Lidarr quality profile name (default: first)")
-    p.add_argument("--metadata-profile", help="Lidarr metadata profile name (default: first)")
-    p.add_argument("--root-folder", help="Lidarr root folder path (default: first)")
-    p.add_argument("--state", help="state file path (default: <csv>.chartarr.jsonl)")
+    p.add_argument("--search", action="store_true", help="have lidarr search for added albums")
+    p.add_argument("--quality-profile", help="lidarr quality profile (default: first)")
+    p.add_argument("--metadata-profile", help="lidarr metadata profile (default: first)")
+    p.add_argument("--root-folder", help="lidarr root folder (default: first)")
+    p.add_argument("--state", help="state file (default: <csv>.chartarr.jsonl)")
     p.add_argument("--version", action="version", version=f"chartarr {__version__}")
     return p
 
 
-def main(argv: list[str] | None = None) -> None:
+def main(argv=None) -> None:
     args = build_parser().parse_args(argv)
-    ui.banner()
 
     cfg = load_config()
     if args.setup:
@@ -290,18 +355,15 @@ def main(argv: list[str] | None = None) -> None:
 
     csv_path = Path(args.csv)
     if not csv_path.exists():
-        ui.error(f"no such file: {csv_path}")
-        sys.exit(1)
+        fail(f"no such file: {csv_path}")
     rows, artist_col, title_col = load_csv(csv_path)
-    console.print(f"[dim]{csv_path.name}: {len(rows)} albums "
-                  f"(artist: {artist_col!r}, title: {title_col!r})[/]")
+    print(dim(f"{csv_path.name}: {_n(len(rows), 'album')}"))
 
     state = State(Path(args.state) if args.state else
                   csv_path.with_suffix(csv_path.suffix + ".chartarr.jsonl"))
 
     needs_push = not (args.match_only or args.review_only)
     if needs_push and not args.dry_run and not (cfg.get("lidarr_url") and cfg.get("api_key")):
-        console.print("[yellow]![/] no Lidarr config yet — quick setup first")
         cfg = setup_wizard(cfg)
 
     try:
@@ -312,11 +374,14 @@ def main(argv: list[str] | None = None) -> None:
         if needs_push:
             items = import_set(rows, state)
             stage_push(items, artist_col, title_col, args, cfg)
-            pushed_rows = [it["row"] for it in items]
-            ui.stats_panel(pushed_rows, artist_col, title_col)
+            if items and not args.dry_run:
+                closing_line([it["row"] for it in items], artist_col)
     except KeyboardInterrupt:
-        console.print("\n[dim]interrupted — progress saved, run the same command to resume[/]")
+        status_end()
+        print(dim("stopped — progress is saved, rerun to resume"))
         sys.exit(130)
+    except lidarr.LidarrError as e:
+        fail(str(e))
 
 
 if __name__ == "__main__":
