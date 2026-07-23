@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "chartarr"
 version = "0.1.0"
-description = "Feed your album charts to Lidarr — match a CSV of albums to MusicBrainz and import them as monitored albums."
+description = "match a csv of albums to musicbrainz and add them to lidarr"
 readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.9"
@@ -19,7 +19,10 @@ classifiers = [
     "Programming Language :: Python :: 3",
     "Topic :: Multimedia :: Sound/Audio",
 ]
-dependencies = ["requests>=2.28", "rich>=13.0"]
+dependencies = [
+    "requests>=2.28",
+    'windows-curses>=2.3; platform_system == "Windows"',
+]
 
 [project.optional-dependencies]
 dev = ["pytest>=7"]
