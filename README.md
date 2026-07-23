@@ -1,75 +1,78 @@
 # chartarr
 
-match a csv of albums against musicbrainz and add them to lidarr as
+Match a CSV of albums against MusicBrainz and add them to Lidarr as
 monitored albums.
 
-lidarr can't import files, and its import lists only work on whole
-artists. this fills the gap: you bring a csv (a rateyourmusic chart
-export, a best-of list, a spreadsheet), chartarr finds the release-group
-ids and adds exactly those albums — not entire discographies.
+Lidarr cannot import files, and its import lists operate on artists
+rather than albums. chartarr looks up each artist/title pair on
+MusicBrainz, lets you resolve uncertain matches, and adds the resulting
+albums to Lidarr through its API.
+
+## Installation
 
     pipx install chartarr
 
-## use
+Requires Python 3.9 or later. On Windows, the windows-curses dependency
+is installed automatically.
+
+## Usage
 
     chartarr chart.csv
 
-    chart.csv: 1395 albums
-    matching 1395 albums against musicbrainz (about 26 min, ctrl-c resumes)
-      212/1395  ok 91%  miles davis — kind of blue
-    matched 1236 · review 154 · not found 5
-    ...
+This runs three stages:
 
-three stages, all resumable — progress lives in a small file next to
-your csv, so ctrl-c and rerun whenever:
+1. **Match.** Each artist/title pair is looked up on MusicBrainz.
+   Requests are limited to one per second, per the MusicBrainz rate
+   limit. Progress is saved to `<csv>.chartarr.jsonl`; interrupted runs
+   resume where they left off.
+2. **Review.** Uncertain matches are shown in an interactive list.
+   Arrow keys move, Enter accepts the suggested match, 1-3 select an
+   alternative, s skips a row, a accepts all suggestions, q finishes.
+   Decisions are saved immediately and can be changed by selecting a
+   row again.
+3. **Push.** Matched albums are added to Lidarr as monitored albums.
+   Each artist is added with monitoring disabled, so only the listed
+   albums are monitored. Albums already in Lidarr are skipped; albums
+   Lidarr knows but does not monitor are set to monitored. This stage
+   is safe to re-run.
 
-- **match** — each artist + title is looked up on musicbrainz, paced to
-  their rate limit (about one per second).
-- **review** — uncertain matches open in a small fullscreen screen.
-  up/down moves between albums, 1-3 picks a candidate, s skips,
-  u undoes, o opens musicbrainz in the browser, q saves and quits.
-  decisions are written the moment you press the key.
-- **push** — matched albums go to lidarr, monitored, with each artist
-  set to monitor nothing else. albums lidarr already has are skipped;
-  ones it knows but doesn't monitor get monitored. rerun freely.
+On first run, chartarr asks for the Lidarr URL and API key (Settings >
+General > Security) and stores them in `~/.config/chartarr/config.json`.
+The environment variables `LIDARR_URL` and `LIDARR_API_KEY` take
+precedence over the file.
 
-first run asks for your lidarr url and api key (settings > general >
-security) and keeps them in ~/.config/chartarr/config.json.
+To try it without your own data: `chartarr --example` writes a small
+sample CSV, and `chartarr --demo` opens the review screen with sample
+data without saving anything.
 
-no csv handy? `chartarr --example` writes a small one to play with.
-just want to see the review screen? `chartarr --demo` — canned data,
-nothing saved, no network.
+## Options
 
-## flags
+    --dry-run           show what would be pushed without changing anything
+    --yes               skip the review stage
+    --search            trigger a Lidarr search for added albums
+    --match-only        run only the match stage
+    --review-only       run only the review stage
+    --push-only         run only the push stage
+    --example           write sample.csv to the current directory
+    --demo              open the review screen with sample data
+    --quality-profile   Lidarr quality profile (default: first)
+    --metadata-profile  Lidarr metadata profile (default: first)
+    --root-folder       Lidarr root folder (default: first)
+    --state             state file path (default: <csv>.chartarr.jsonl)
 
-    --dry-run        show what would be pushed, change nothing
-    --yes            skip review, push confident matches only
-    --search         have lidarr search for the added albums
-    --match-only     stop after matching
-    --review-only    just the review screen
-    --push-only      just the push
-    --example        write sample.csv to the current directory
-    --demo           open the review screen with canned data
+## CSV format
 
-quality profile, metadata profile and root folder default to the first
-of each; override with --quality-profile, --metadata-profile,
---root-folder.
+The file must contain an artist column (`artist`, `artists`,
+`artist_name`) and a title column (`title`, `album`, `release`). Other
+columns are ignored. RateYourMusic exports work without changes.
 
-## csv
+## Notes
 
-any csv with an artist column and a title (or album) column works.
-rateyourmusic exports work as they are. extra columns are ignored,
-though release_date and genres make the closing line nicer.
+- A Lidarr album corresponds to a MusicBrainz release group; that is
+  what chartarr matches.
+- MusicBrainz allows one request per second per client. Do not run
+  multiple instances at once.
 
-## notes
+## License
 
-- a lidarr "album" is a musicbrainz release group; that's what gets
-  matched.
-- musicbrainz allows one request per second. chartarr obeys. don't run
-  two copies at once.
-- the review screen uses curses; on windows it comes via the
-  windows-curses package, installed automatically.
-
-## license
-
-mit
+MIT
