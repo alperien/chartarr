@@ -1,0 +1,14 @@
+# build
+__pycache__/
+*.egg-info/
+dist/
+build/
+.venv/
+.pytest_cache/
+
+# chartarr state files
+*.chartarr.jsonl
+
+# keep personal charts out of the repo (the example stays)
+*.csv
+!examples/*.csv
