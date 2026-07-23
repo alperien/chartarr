@@ -1,9 +1,4 @@
-"""Match (artist, album title) pairs to MusicBrainz release groups.
-
-The scoring survived a 1,395-album RateYourMusic chart with an 88.6%
-auto-match rate, including titles like "★ [Blackstar]", "F♯A♯∞" and
-dual-script Japanese releases.
-"""
+"""match artist/title pairs to musicbrainz release groups."""
 from __future__ import annotations
 
 import json
@@ -23,10 +18,8 @@ MIN_SPACING = 1.1  # seconds between requests; MusicBrainz allows 1 req/sec
 _last_request = [0.0]
 
 
-# ---------------------------------------------------------------- normalizing
-
 def norm(s: str) -> str:
-    """Casefolded, diacritic-free, punctuation-free form for comparison."""
+    """comparison form: casefolded, no diacritics, no punctuation."""
     s = unicodedata.normalize("NFKD", s)
     s = "".join(c for c in s if not unicodedata.combining(c))
     s = s.casefold().replace("&", " and ")
@@ -35,11 +28,11 @@ def norm(s: str) -> str:
 
 
 def sim(a: str, b: str) -> float:
-    """Similarity in [0, 1]; falls back to raw comparison for symbol-only
-    strings like Bowie's "★" that normalize to nothing."""
+    """similarity in [0, 1]."""
     na, nb = norm(a), norm(b)
     if na and nb:
         return SequenceMatcher(None, na, nb).ratio()
+    # symbol-only strings ("★") normalize to nothing; compare them raw
     ra = re.sub(r"\s+", "", a.casefold())
     rb = re.sub(r"\s+", "", b.casefold())
     if not ra or not rb:
@@ -48,9 +41,7 @@ def sim(a: str, b: str) -> float:
 
 
 def variants(s: str) -> list[str]:
-    """Alternate forms worth trying: the flattened string, each line of a
-    multi-line value (RYM exports dual-script titles on two lines), and
-    bracket-stripped forms ("★ [Blackstar]" -> "★" and "Blackstar")."""
+    """alternate forms: the whole string, each line, bracket contents."""
     out: list[str] = []
 
     def add(x: str) -> None:
@@ -72,14 +63,12 @@ def variants(s: str) -> list[str]:
     return out
 
 
-# ------------------------------------------------------------- MusicBrainz IO
-
 def _lucene_quote(s: str) -> str:
     return '"' + s.replace("\\", r"\\").replace('"', r"\"") + '"'
 
 
 def mb_search(query: str, limit: int = 8) -> dict | None:
-    """Rate-limited release-group search with retry/backoff."""
+    """release-group search, paced and with retry."""
     url = "https://musicbrainz.org/ws/2/release-group/?" + urllib.parse.urlencode(
         {"query": query, "fmt": "json", "limit": limit})
     for attempt in range(6):
@@ -122,16 +111,8 @@ def _first_artist(rg: dict) -> tuple[str | None, str]:
     return None, ""
 
 
-# ------------------------------------------------------------------- scoring
-
 def score_rgs(rgs: list[dict], t_vars: list[str], a_vars: list[str]) -> list[dict]:
-    """Score release groups against all title/artist variants.
-
-    Returns candidates sorted best-first. The sort key is the confidence
-    plus small uncapped bonuses (Album > EP > other, then MusicBrainz's own
-    relevance) so that e.g. Bowie's "★" Album beats the "★" Single even when
-    both hit similarity 1.0.
-    """
+    """score release groups against the variants, best first."""
     out = []
     for rg in rgs:
         rg_title = rg.get("title", "")
@@ -140,6 +121,7 @@ def score_rgs(rgs: list[dict], t_vars: list[str], a_vars: list[str]) -> list[dic
         a_sim = max((sim(av, rg_artist) for av in a_vars), default=0.0)
         conf = 0.55 * t_sim + 0.45 * a_sim
         ptype = rg.get("primary-type") or ""
+        # albums beat singles on ties (bowie has both, titled ★)
         sort_key = conf + {"Album": 0.03, "EP": 0.015}.get(ptype, 0.0)
         sort_key += 0.0003 * float(rg.get("score", 0))
         aid, aname = _first_artist(rg)
@@ -162,9 +144,7 @@ def score_rgs(rgs: list[dict], t_vars: list[str], a_vars: list[str]) -> list[dic
 
 
 def match_row(title: str, artist: str) -> dict:
-    """Match one row. Returns a result dict with status matched / review /
-    not_found, the best candidate's fields inline, and up to three ranked
-    candidates for human review when the match wasn't confident."""
+    """look up one row; returns status, best fields, review candidates."""
     t_vars = variants(title)
     a_vars = variants(artist)
 
@@ -203,7 +183,7 @@ def match_row(title: str, artist: str) -> dict:
 
 
 def iter_match(rows, artist_col: str, title_col: str):
-    """Yield (row, result) for each row; caller drives progress and state."""
+    """yield (row, result) per row."""
     for row in rows:
         result = match_row(row[title_col], row[artist_col])
         yield row, result

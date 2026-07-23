@@ -1,9 +1,8 @@
-"""A small Lidarr API client that adds albums the polite way.
+"""small lidarr api client.
 
-Lidarr quirk this handles: adding an artist (even for one album) makes
-Lidarr create DB rows for the artist's *entire* discography, unmonitored.
-A later attempt to POST one of those albums hits a UNIQUE constraint
-(HTTP 409). We detect existing rows first and just flip them to monitored.
+adding an artist makes lidarr quietly create rows for their whole
+discography, unmonitored. re-adding one of those albums 409s, so
+add_album finds the existing row and flips it to monitored instead.
 """
 from __future__ import annotations
 
@@ -13,7 +12,7 @@ import requests
 
 
 class LidarrError(Exception):
-    """A friendly, user-facing Lidarr problem."""
+    """an error worth showing the user."""
 
 
 class Lidarr:
@@ -21,8 +20,6 @@ class Lidarr:
         self.base = url.rstrip("/")
         self.s = requests.Session()
         self.s.headers["X-Api-Key"] = api_key
-
-    # ------------------------------------------------------------- plumbing
 
     def _call(self, path: str, method: str = "GET", **kw):
         try:
@@ -40,8 +37,6 @@ class Lidarr:
         r.raise_for_status()
         return r.json() if r.text else None
 
-    # ------------------------------------------------------------ inventory
-
     def status(self) -> dict:
         return self._call("system/status")
 
@@ -58,8 +53,7 @@ class Lidarr:
         return self._call("album") or []
 
     def find_album(self, rgid: str) -> dict | None:
-        """Find an album row by release-group MBID (client-side filtered,
-        because the foreignAlbumId query param varies across versions)."""
+        # filtered client-side; the query param varies across lidarr versions
         try:
             albums = self._call("album", params={"foreignAlbumId": rgid}) or []
         except (LidarrError, requests.HTTPError):
@@ -68,8 +62,6 @@ class Lidarr:
             if a.get("foreignAlbumId") == rgid:
                 return a
         return None
-
-    # -------------------------------------------------------------- actions
 
     def set_monitored(self, album: dict) -> None:
         try:
@@ -86,10 +78,7 @@ class Lidarr:
     def add_album(self, rgid: str, quality_profile_id: int,
                   metadata_profile_id: int, root_folder: str,
                   search: bool = False) -> str:
-        """Add one release group. Returns 'added' | 'monitored' | 'skipped'.
-
-        Raises LidarrError with a readable message on failure.
-        """
+        """add one release group; returns added, monitored or skipped."""
         existing = self.find_album(rgid)
         if existing is not None:
             if existing.get("monitored"):
@@ -120,7 +109,7 @@ class Lidarr:
                         or (code == 400 and "exist" in body.lower()))
             if not conflict:
                 raise LidarrError(f"HTTP {code}: {body or e}") from e
-            # the row appeared mid-run (artist side effect) — monitor it
+            # the row appeared mid-run (artist side effect); monitor it
             found = self.find_album(rgid)
             if found is None:
                 raise LidarrError(f"conflict but album not found afterwards ({body})") from e
