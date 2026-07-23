@@ -1,4 +1,4 @@
-"""Golden tests for the matcher core — every case here bit us on real data."""
+"""matcher tests. every case here happened on a real chart."""
 from chartarr.matcher import norm, score_rgs, sim, variants
 
 
@@ -14,8 +14,6 @@ def rg(title, artist, mbid, ptype="Album", score=100, secondary=None):
     }
 
 
-# ------------------------------------------------------------- normalization
-
 def test_norm_strips_diacritics_and_punctuation():
     assert norm("Sigur Rós") == norm("sigur ros")
     assert norm("Piñata") == norm("pinata")
@@ -30,24 +28,20 @@ def test_norm_symbol_only_is_empty():
     assert norm("★") == ""
 
 
-# ---------------------------------------------------------------- similarity
-
 def test_sim_symbol_only_titles_compare_raw():
     assert sim("★", "★") == 1.0
     assert sim("★", "✝") < 1.0
 
 
 def test_sim_sharp_signs_and_infinity():
-    # RYM writes F♯A♯∞, MusicBrainz writes F♯ A♯ ∞
+    # rym writes F♯A♯∞, musicbrainz writes F♯ A♯ ∞
     assert sim("F♯A♯∞", "F♯ A♯ ∞") > 0.7
 
 
 def test_sim_punctuation_in_artist_names():
-    # RYM: "Godspeed You Black Emperor!" / MB: "Godspeed You! Black Emperor"
+    # rym: "Godspeed You Black Emperor!" / mb: "Godspeed You! Black Emperor"
     assert sim("Godspeed You Black Emperor!", "Godspeed You! Black Emperor") == 1.0
 
-
-# ------------------------------------------------------------------ variants
 
 def test_variants_dual_script_title():
     vs = variants("98.12.28 Otokotachi no wakare\n98.12.28 男達の別れ")
@@ -61,10 +55,8 @@ def test_variants_bracketed_alt_title():
     assert "Blackstar" in vs
 
 
-# ------------------------------------------------------------------- scoring
-
 def test_blackstar_album_beats_single_at_equal_similarity():
-    """Bowie has an Album AND a Single both titled ★ — the Album must win."""
+    # bowie has an album and a single both titled ★; the album must win
     cands = score_rgs(
         [rg("★", "David Bowie", "single-id", ptype="Single"),
          rg("★", "David Bowie", "album-id", ptype="Album")],
