@@ -11,7 +11,7 @@ import sys
 from collections import Counter
 from pathlib import Path
 
-from . import __version__, lidarr, matcher, review
+from . import __version__, demo, lidarr, matcher, review
 
 ARTIST_COLS = ("artist", "artists", "artist_name", "albumartist", "album artist")
 TITLE_COLS = ("title", "album", "album_title", "release", "name")
@@ -353,6 +353,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--state", help="state file (default: <csv>.chartarr.jsonl)")
     p.add_argument("--example", action="store_true",
                    help="write sample.csv here to try things out")
+    p.add_argument("--demo", action="store_true",
+                   help="poke at the review screen with canned data")
     p.add_argument("--version", action="version", version=f"chartarr {__version__}")
     return p
 
@@ -366,6 +368,10 @@ def main(argv=None) -> None:
             fail("sample.csv already exists here")
         p.write_text(EXAMPLE_CSV, encoding="utf-8")
         print("wrote sample.csv — try: chartarr sample.csv --dry-run")
+        return
+
+    if args.demo:
+        demo.run()
         return
 
     cfg = load_config()
