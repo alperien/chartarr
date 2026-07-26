@@ -18,6 +18,10 @@ MIN_SPACING = 1.1  # seconds between requests; MusicBrainz allows 1 req/sec
 _last_request = [0.0]
 
 
+class SearchUnavailable(Exception):
+    """musicbrainz could not be reached; the row is unanswered, not unmatched."""
+
+
 def norm(s: str) -> str:
     """comparison form: casefolded, no diacritics, no punctuation."""
     s = unicodedata.normalize("NFKD", s)
@@ -78,6 +82,7 @@ def mb_search(query: str, limit: int = 25, dismax: bool = False) -> dict | None:
     if dismax:
         params["dismax"] = "true"
     url = "https://musicbrainz.org/ws/2/release-group/?" + urllib.parse.urlencode(params)
+    last = "no response"
     for attempt in range(6):
         wait = _last_request[0] + MIN_SPACING - time.monotonic()
         if wait > 0:
@@ -88,6 +93,7 @@ def mb_search(query: str, limit: int = 25, dismax: bool = False) -> dict | None:
             with urllib.request.urlopen(req, timeout=30) as r:
                 return json.loads(r.read().decode("utf-8"))
         except urllib.error.HTTPError as e:
+            last = f"musicbrainz returned HTTP {e.code}"
             if e.code in (429, 503):
                 retry_after = e.headers.get("Retry-After")
                 try:
@@ -97,11 +103,18 @@ def mb_search(query: str, limit: int = 25, dismax: bool = False) -> dict | None:
                 # honor the server's backoff beyond the old 30s clamp; the
                 # cap only guards against a pathological Retry-After header
                 time.sleep(min(pause, 600))
+            elif 400 <= e.code < 500:
+                # a query musicbrainz refuses is not going to improve
+                return None
             else:
                 time.sleep(2 ** attempt)
-        except Exception:
+        except Exception as e:  # noqa: BLE001 - network, dns, tls, json, all retried
+            last = str(e) or e.__class__.__name__
             time.sleep(2 ** attempt)
-    return None
+    # out of retries: say so. returning None here would look exactly like
+    # "musicbrainz has no such record", and that answer gets written to the
+    # state file and never revisited.
+    raise SearchUnavailable(f"musicbrainz is not answering ({last})")
 
 
 def _rg_aliases(mbid: str) -> list[dict]:
@@ -330,7 +343,11 @@ def match_row(title: str, artist: str) -> dict:
 
 
 def iter_match(rows, artist_col: str, title_col: str):
-    """yield (row, result) per row."""
+    """yield (row, result) per row; result is None if musicbrainz is down."""
     for row in rows:
-        result = match_row(row[title_col], row[artist_col])
+        try:
+            result = match_row(row[title_col], row[artist_col])
+        except SearchUnavailable:
+            yield row, None
+            return
         yield row, result

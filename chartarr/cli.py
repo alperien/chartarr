@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import json
 import os
 import re
@@ -125,27 +126,48 @@ class State:
         self.path = path
         self.results: dict[str, dict] = {}
         self.decisions: dict[str, dict] = {}
+        self._needs_newline = False
         if path.exists():
-            with path.open(encoding="utf-8") as f:
-                for line in f:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    try:
-                        rec = json.loads(line)
-                    except json.JSONDecodeError:
-                        continue
-                    if rec.get("type") == "decision":
-                        d = rec["decision"]
-                        if d.get("action") == "clear":
-                            self.decisions.pop(rec["key"], None)
-                        else:
-                            self.decisions[rec["key"]] = d
+            raw = path.read_bytes()
+            self._needs_newline = bool(raw) and not raw.endswith(b"\n")
+            for line in raw.decode("utf-8", "replace").splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    rec = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if not isinstance(rec, dict) or "key" not in rec:
+                    continue
+                kind = rec.get("type")
+                if kind == "decision":
+                    d = rec.get("decision") or {}
+                    if d.get("action") == "clear":
+                        self.decisions.pop(rec["key"], None)
                     else:
-                        self.results[rec["key"]] = rec
+                        self.decisions[rec["key"]] = d
+                elif kind == "forget":
+                    self.results.pop(rec["key"], None)
+                    self.decisions.pop(rec["key"], None)
+                else:
+                    self.results[rec["key"]] = rec
+
+    def forget(self, keys) -> None:
+        """drop match results so the rows are looked up again."""
+        for key in keys:
+            self.results.pop(key, None)
+            self.decisions.pop(key, None)
+            self._append({"type": "forget", "key": key})
 
     def _append(self, rec: dict) -> None:
         with self.path.open("a", encoding="utf-8") as f:
+            # a run killed mid-write leaves a line with no newline; starting
+            # a fresh one keeps the next record from fusing onto that stub
+            # (the stub itself is dropped as unparseable on the next read)
+            if self._needs_newline:
+                f.write("\n")
+                self._needs_newline = False
             f.write(json.dumps(rec, ensure_ascii=False) + "\n")
 
     def add_result(self, key: str, result: dict) -> None:
@@ -163,6 +185,11 @@ class State:
 
 # csv
 
+def _row_key(artist: str, title: str) -> str:
+    text = f"{matcher.norm(artist)}␟{matcher.norm(title)}"
+    return hashlib.sha1(text.encode("utf-8")).hexdigest()[:16]
+
+
 def load_csv(path: Path):
     with path.open(newline="", encoding="utf-8-sig") as f:
         reader = csv.DictReader(f)
@@ -177,9 +204,15 @@ def load_csv(path: Path):
         fail(f"need an artist and a title/album column, found: {', '.join(cols)}")
     rows = [r for r in rows if (r.get(artist_col) or "").strip()
             and (r.get(title_col) or "").strip()]
-    key_col = lookup.get("rank") or lookup.get("id")
-    for i, r in enumerate(rows, 1):
-        r["_key"] = str(r[key_col]) if key_col and r.get(key_col) else f"row{i}"
+    # key on what the row says, not where it sits: row positions shift when
+    # the csv is edited between runs, and a shifted key hands one album's
+    # match to another one. same artist and title, same key, always.
+    seen: Counter = Counter()
+    for r in rows:
+        base = _row_key(r[artist_col], r[title_col])
+        seen[base] += 1
+        # a chart can list the same record twice; keep both addressable
+        r["_key"] = base if seen[base] == 1 else f"{base}-{seen[base]}"
     return rows, artist_col, title_col
 
 
@@ -198,13 +231,19 @@ def stage_match(rows, artist_col, title_col, state: State) -> None:
     if not pending:
         print(dim("matching already done"))
         return
-    mins = len(pending) * 1.1 / 60
+    # a row costs about two and a half lookups on average, not one: the
+    # title, its variants, an alias query, then a plain-text fallback
+    mins = len(pending) * matcher.MIN_SPACING * 2.5 / 60
     print(f"matching {_n(len(pending), 'album')} against musicbrainz "
           + dim(f"(about {max(1, round(mins))} min, q or ctrl-c stops, rerun resumes)"))
     base = Counter(r["status"] for r in state.results.values())
+    unreachable = []
 
     def events():
         for row, result in matcher.iter_match(pending, artist_col, title_col):
+            if result is None:  # musicbrainz went away; leave the row unanswered
+                unreachable.append(row)
+                return
             state.add_result(row["_key"], result)
             yield (f"{_one_line(row[artist_col])} — {_one_line(row[title_col])}",
                    result["status"])
@@ -223,6 +262,9 @@ def stage_match(rows, artist_col, title_col, state: State) -> None:
     print(f"matched {accent(counts.get('matched', 0))} · "
           f"review {accent(counts.get('review', 0))} · "
           f"not found {accent(counts.get('not_found', 0))}")
+    if unreachable:
+        fail("musicbrainz stopped answering — the rows matched so far are "
+             "saved, rerun to pick up the rest")
     if stopped:
         print(dim("stopped — progress is saved, rerun to resume"))
         sys.exit(0)
@@ -403,6 +445,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--metadata-profile", help="lidarr metadata profile (default: first)")
     p.add_argument("--root-folder", help="lidarr root folder (default: first)")
     p.add_argument("--state", help="state file (default: <csv>.chartarr.jsonl)")
+    p.add_argument("--rematch", action="store_true",
+                   help="look up rows nothing was found for again")
     p.add_argument("--example", action="store_true",
                    help="write sample.csv to the current directory")
     p.add_argument("--demo", action="store_true",
@@ -443,6 +487,15 @@ def main(argv=None) -> None:
 
     state = State(Path(args.state) if args.state else
                   csv_path.with_suffix(csv_path.suffix + ".chartarr.jsonl"))
+
+    if args.rematch:
+        stale = [k for k, res in state.results.items()
+                 if res.get("status") == "not_found"]
+        if stale:
+            state.forget(stale)
+            print(dim(f"looking up {_n(len(stale), 'row')} again"))
+        else:
+            print(dim("nothing to look up again"))
 
     needs_push = not (args.match_only or args.review_only)
     if needs_push and not args.dry_run and not (cfg.get("lidarr_url") and cfg.get("api_key")):
