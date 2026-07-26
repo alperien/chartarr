@@ -108,7 +108,7 @@ def mb_search(query: str, limit: int = 25, dismax: bool = False) -> dict | None:
                 return None
             else:
                 time.sleep(2 ** attempt)
-        except Exception as e:  # noqa: BLE001 - network, dns, tls, json, all retried
+        except Exception as e:
             last = str(e) or e.__class__.__name__
             time.sleep(2 ** attempt)
     # out of retries: say so. returning None here would look exactly like

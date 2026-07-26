@@ -178,8 +178,10 @@ def test_load_csv_latin1_fails_with_utf8_advice(tmp_path, capsys):
 
 
 def test_load_csv_utf16_mentions_excels_unicode_export(tmp_path, capsys):
-    # excel's "unicode text" export is utf-16: ascii bytes with NULs
-    # in between, which the csv module rejects with "line contains NUL"
+    # excel's "unicode text" export is utf-16: ascii bytes with NULs in
+    # between. python 3.11 and older rejected that in the csv reader; 3.12
+    # parses it into gibberish column names instead, so chartarr looks for
+    # the NULs itself rather than letting the error depend on the version
     p = tmp_path / "chart.csv"
     p.write_bytes("title\tartist\nRumours\tFleetwood Mac\n".encode("utf-16-le"))
     with pytest.raises(SystemExit) as exc:

@@ -217,6 +217,16 @@ def _row_key(artist: str, title: str) -> str:
 
 def load_csv(path: Path):
     try:
+        head = path.read_bytes()[:4096]
+    except OSError as e:
+        fail(f"can't read {path}: {e.strerror or e}")
+    # excel's "unicode text" export is utf-16: ascii bytes padded with NULs.
+    # python 3.12 stopped rejecting those in the csv reader, so the file
+    # parses into gibberish column names instead of failing; say what it is.
+    if b"\x00" in head:
+        fail(f'{path} looks like utf-16 (excel\'s "unicode text" export) — '
+             're-save it as "csv utf-8" and rerun')
+    try:
         with path.open(newline="", encoding="utf-8-sig") as f:
             reader = csv.DictReader(f)
             rows = list(reader)
