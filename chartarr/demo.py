@@ -114,15 +114,24 @@ def run() -> None:
             names.insert(6 * (i + 1), (row["artist"], row["title"]))
 
         def match_events():
-            for artist, title in names:
+            for i, (artist, title) in enumerate(names):
                 time.sleep(0.05)
                 st = review_pairs.get((artist, title), "matched")
+                if st == "matched" and i == 12:
+                    st = "unreachable"  # musicbrainz didn't answer; retried later
                 yield (f"{artist.splitlines()[0]} — {title.splitlines()[0]}", st)
 
         counts, stopped = screen.match_screen(match_events(), total, {})
-        print(f"matched {cli.accent(counts.get('matched', 0))} · "
-              f"review {cli.accent(counts.get('review', 0))} · "
-              f"not found {cli.accent(counts.get('not_found', 0))}")
+        line = (f"matched {cli.accent(counts.get('matched', 0))} · "
+                f"review {cli.accent(counts.get('review', 0))} · "
+                f"not found {cli.accent(counts.get('not_found', 0))}")
+        if counts.get("unreachable"):
+            line += f" · unanswered {cli.accent(counts['unreachable'])}"
+        print(line)
+        if counts.get("unreachable"):
+            print(cli.dim(f"musicbrainz didn't answer for "
+                          f"{cli._n(counts['unreachable'], 'row')} — "
+                          f"a real run would retry these"))
         if stopped:
             print(cli.dim("demo over — nothing was saved or sent"))
             return

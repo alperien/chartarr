@@ -9,6 +9,6 @@ build/
 # chartarr state files
 *.chartarr.jsonl
 
-# keep personal charts out of the repo (the example stays)
+# keep personal charts out of the repo
+# (--example writes sample.csv into the working directory)
 *.csv
-!examples/*.csv

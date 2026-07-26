@@ -26,11 +26,14 @@ This runs four stages:
    limit. A fullscreen progress view shows the bar, running totals and
    the most recent lookups; press q to stop. Progress is saved to
    `<csv>.chartarr.jsonl`; interrupted runs resume where they left off.
+   Rows MusicBrainz could not be reached for are reported as unanswered
+   and retried on the next run, rather than recorded as a miss.
 2. **Review.** Uncertain matches are shown in an interactive list.
    Arrow keys move, Enter accepts the suggested match, 1-3 select an
    alternative, s skips a row, a accepts all suggestions, q finishes.
    Decisions are saved immediately and can be changed by selecting a
-   row again.
+   row again. If every uncertain row is already decided, chartarr offers
+   to reopen the list so an earlier choice can be changed.
 3. **Push.** Matched albums are added to Lidarr as monitored albums,
    with the same fullscreen progress view. Each artist is added with
    monitoring disabled, so only the listed albums are monitored.
@@ -82,6 +85,9 @@ The file must contain an artist column (`artist`, `artists`,
 `artist_name`) and a title column (`title`, `album`, `release`). Other
 columns are ignored. RateYourMusic exports work without changes.
 
+A `rank` or `id` column, when present, identifies rows in the state file.
+Repeated values are fine — later rows get a suffix so nothing is lost.
+
 ## Notes
 
 - A Lidarr album corresponds to a MusicBrainz release group; that is
@@ -96,6 +102,20 @@ columns are ignored. RateYourMusic exports work without changes.
   it pushed and restores monitoring before searching.
 
 [Lidarr#5012]: https://github.com/Lidarr/Lidarr/issues/5012
+
+## Troubleshooting
+
+- **Nothing downloads after a push.** Monitoring an album does not fetch
+  it. Answer yes at the download prompt, or pass `--search`. If neither
+  happened, the albums are monitored and Lidarr's scheduled task will
+  find them eventually.
+- **Some rows say "unanswered".** MusicBrainz could not be reached for
+  them. Rerun and they are tried again; nothing is lost.
+- **An album failed with an HTTP error.** The rest of the push still
+  went through. Rerun to retry just the failures — adding and monitoring
+  are both safe to repeat.
+- **A row was skipped by mistake.** Rerun with `--review-only`; chartarr
+  offers to reopen the review list so the decision can be changed.
 
 ## License
 

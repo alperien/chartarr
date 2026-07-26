@@ -109,15 +109,19 @@ def match_screen(events, total, base_counts):
     def feed():
         for label, status in events:
             counts[status] = counts.get(status, 0) + 1
-            yield {"matched": "ok", "not_found": "no match"}.get(status, status), label
+            yield {"matched": "ok", "not_found": "no match",
+                   "unreachable": "no answer"}.get(status, status), label
 
     def line():
-        return (f"matched {counts.get('matched', 0)} · "
-                f"review {counts.get('review', 0)} · "
-                f"not found {counts.get('not_found', 0)}")
+        s = (f"matched {counts.get('matched', 0)} · "
+             f"review {counts.get('review', 0)} · "
+             f"not found {counts.get('not_found', 0)}")
+        if counts.get("unreachable"):
+            s += f" · unanswered {counts['unreachable']}"
+        return s
 
     quit_ = _run(_progress, "matching against musicbrainz", feed(), total,
-                 line, {"review", "no match"})
+                 line, {"review", "no match", "no answer"})
     return counts, quit_
 
 

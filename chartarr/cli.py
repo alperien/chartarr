@@ -71,6 +71,16 @@ def fail(msg: str) -> None:
     sys.exit(1)
 
 
+def _confirm(question: str) -> bool:
+    """a plain y/n question. false when there is nobody to ask."""
+    if not (sys.stdin.isatty() and sys.stdout.isatty()):
+        return False
+    try:
+        return input(f"{question} [y/N] ").strip().lower() in ("y", "yes")
+    except EOFError:
+        return False
+
+
 # config
 
 def config_path() -> Path:
@@ -177,9 +187,23 @@ def load_csv(path: Path):
         fail(f"need an artist and a title/album column, found: {', '.join(cols)}")
     rows = [r for r in rows if (r.get(artist_col) or "").strip()
             and (r.get(title_col) or "").strip()]
+    # keys index the state file, so they have to be unique. a rank column
+    # is the nicest key when it is unique, but chart exports do tie, and a
+    # repeated key silently drops every row after the first. keep the bare
+    # rank for the first row that claims it -- so state files written
+    # before this stay valid -- and suffix any later collision.
     key_col = lookup.get("rank") or lookup.get("id")
+    seen: dict[str, int] = {}
     for i, r in enumerate(rows, 1):
-        r["_key"] = str(r[key_col]) if key_col and r.get(key_col) else f"row{i}"
+        key = str(r[key_col]).strip() if key_col and r.get(key_col) else ""
+        if not key:
+            key = f"row{i}"
+        if key in seen:
+            seen[key] += 1
+            key = f"{key}#{seen[key]}"
+        else:
+            seen[key] = 1
+        r["_key"] = key
     return rows, artist_col, title_col
 
 
@@ -194,14 +218,23 @@ def _n(count: int, word: str) -> str:
 # stages
 
 def stage_match(rows, artist_col, title_col, state: State) -> None:
-    pending = [r for r in rows if r["_key"] not in state.results]
+    # rows musicbrainz could not be asked about are retried, not skipped
+    pending = [r for r in rows
+               if state.results.get(r["_key"], {}).get("status", "") in
+               ("", "unreachable")]
     if not pending:
         print(dim("matching already done"))
         return
+    retries = sum(1 for r in pending if r["_key"] in state.results)
+    if retries:
+        print(dim(f"retrying {_n(retries, 'row')} musicbrainz didn't answer for"))
     mins = len(pending) * 1.1 / 60
     print(f"matching {_n(len(pending), 'album')} against musicbrainz "
           + dim(f"(about {max(1, round(mins))} min, q or ctrl-c stops, rerun resumes)"))
-    base = Counter(r["status"] for r in state.results.values())
+    # rows about to be retried are counted by this run, not carried in
+    retrying = {r["_key"] for r in pending}
+    base = Counter(res["status"] for key, res in state.results.items()
+                   if key not in retrying)
 
     def events():
         for row, result in matcher.iter_match(pending, artist_col, title_col):
@@ -220,9 +253,15 @@ def stage_match(rows, artist_col, title_col, state: State) -> None:
             pct = counts.get("matched", 0) / done if done else 0
             status(f"  {i}/{len(pending)}  ok {pct:.0%}  {label}")
         status_end()
-    print(f"matched {accent(counts.get('matched', 0))} · "
-          f"review {accent(counts.get('review', 0))} · "
-          f"not found {accent(counts.get('not_found', 0))}")
+    line = (f"matched {accent(counts.get('matched', 0))} · "
+            f"review {accent(counts.get('review', 0))} · "
+            f"not found {accent(counts.get('not_found', 0))}")
+    if counts.get("unreachable"):
+        line += f" · unanswered {accent(counts['unreachable'])}"
+    print(line)
+    if counts.get("unreachable"):
+        print(dim(f"musicbrainz didn't answer for "
+                  f"{_n(counts['unreachable'], 'row')} — rerun to try again"))
     if stopped:
         print(dim("stopped — progress is saved, rerun to resume"))
         sys.exit(0)
@@ -230,16 +269,25 @@ def stage_match(rows, artist_col, title_col, state: State) -> None:
 
 def stage_review(rows, artist_col, title_col, state: State) -> None:
     by_key = {r["_key"]: r for r in rows}
-    pending = [(by_key[k], res) for k, res in state.results.items()
-               if res["status"] in ("review", "not_found")
-               and k not in state.decisions and k in by_key]
+    uncertain = [(by_key[k], res) for k, res in state.results.items()
+                 if res["status"] in ("review", "not_found") and k in by_key]
+    pending = [(row, res) for row, res in uncertain
+               if res["key"] not in state.decisions]
     if not pending:
-        return
+        if not uncertain:
+            return  # nothing uncertain in the first place
+        # every uncertain row is already decided; offer the list again so a
+        # wrong skip can be changed, but don't force it on anyone
+        if not _screen_ok() or not _confirm(
+                f"{_n(len(uncertain), 'row')} already decided — review again?"):
+            return
+        pending = uncertain
     if not (sys.stdin.isatty() and sys.stdout.isatty()):
         print(dim(f"{len(pending)} rows need review — rerun in a terminal, "
                   f"or use --yes to push without them"))
         return
-    review.run(pending, artist_col, title_col, state.add_decision)
+    review.run(pending, artist_col, title_col, state.add_decision,
+               existing=state.decisions)
     picked = sum(1 for _, res in pending
                  if state.decisions.get(res["key"], {}).get("action") == "accept")
     skipped = sum(1 for _, res in pending
@@ -250,18 +298,26 @@ def stage_review(rows, artist_col, title_col, state: State) -> None:
 
 
 def import_set(rows, state: State) -> list[dict]:
+    """the albums to push: automatic matches plus accepted review picks.
+
+    a decision always wins over the match result, so an explicit skip is
+    respected even on a row that matched cleanly, and a re-pick replaces
+    the automatic choice.
+    """
     by_key = {r["_key"]: r for r in rows}
     out = []
     for key, res in state.results.items():
         row = by_key.get(key)
         if row is None:
             continue
-        if res["status"] == "matched":
-            out.append({"key": key, "row": row, "rgid": res["release_group_mbid"]})
-        else:
-            d = state.decisions.get(key)
-            if d and d.get("action") == "accept":
-                out.append({"key": key, "row": row, "rgid": d["mbid"]})
+        d = state.decisions.get(key) or {}
+        if d.get("action") == "skip":
+            continue
+        rgid = d.get("mbid") if d.get("action") == "accept" else None
+        if rgid is None and res["status"] == "matched":
+            rgid = res.get("release_group_mbid")
+        if rgid:
+            out.append({"key": key, "row": row, "rgid": rgid})
     return out
 
 

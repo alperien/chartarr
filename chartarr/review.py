@@ -4,20 +4,23 @@ from __future__ import annotations
 from .screen import _fit, _put, _run, available, curses
 
 
-def run(items, artist_col, title_col, on_decision):
+def run(items, artist_col, title_col, on_decision, existing=None):
     """show (row, result) pairs in a list; decisions go to on_decision.
 
     arrow keys move, enter accepts the suggested match, 1-3 pick another
     candidate, s skips, a accepts every remaining suggestion, q finishes.
     picking again on a decided row replaces the earlier decision.
+
+    existing maps key -> decision for rows decided on an earlier run, so
+    reopening the list shows what was already chosen.
     """
     if not available():
         print("the review screen needs curses (on windows: pip install windows-curses)")
         return
-    _run(_loop, items, artist_col, title_col, on_decision)
+    _run(_loop, items, artist_col, title_col, on_decision, existing or {})
 
 
-def _loop(scr, items, artist_col, title_col, on_decision):
+def _loop(scr, items, artist_col, title_col, on_decision, existing):
     curses.curs_set(0)
     accent = 0
     if curses.has_colors():
@@ -26,7 +29,8 @@ def _loop(scr, items, artist_col, title_col, on_decision):
         accent = curses.color_pair(1)
     dim = curses.A_DIM
 
-    decisions = {}
+    decisions = {res["key"]: existing[res["key"]] for _, res in items
+                 if res["key"] in existing}
     pos = 0
     top = 0
 

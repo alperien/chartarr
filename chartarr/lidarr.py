@@ -14,6 +14,7 @@ clean up after.
 from __future__ import annotations
 
 import time
+import urllib.parse
 
 import requests
 
@@ -21,21 +22,37 @@ BATCH = 100
 
 
 class LidarrError(Exception):
-    """an error worth showing the user."""
+    """an error worth showing the user.
+
+    carries the http status and body when there was one, so callers can
+    tell a conflict from a real failure without catching raw requests
+    exceptions.
+    """
+
+    def __init__(self, message: str, status_code: int = 0, body: str = ""):
+        super().__init__(message)
+        self.status_code = status_code
+        self.body = body
+
+
+def _safe_url(url: str) -> str:
+    """the url without any user:password@ part, for error messages."""
+    try:
+        parts = urllib.parse.urlsplit(url)
+    except ValueError:
+        return url
+    if not parts.hostname:
+        return url
+    host = parts.hostname
+    if parts.port:
+        host = f"{host}:{parts.port}"
+    return urllib.parse.urlunsplit(
+        (parts.scheme, host, parts.path, parts.query, parts.fragment))
 
 
 def _chunks(seq: list, size: int):
     for i in range(0, len(seq), size):
         yield seq[i:i + size]
-
-
-def _reason(e: Exception) -> str:
-    """a short, readable cause for a failed call."""
-    resp = getattr(e, "response", None)
-    if resp is not None:
-        body = (resp.text or "")[:200].strip()
-        return f"HTTP {resp.status_code}" + (f": {body}" if body else "")
-    return str(e)
 
 
 class Lidarr:
@@ -45,20 +62,38 @@ class Lidarr:
         self.s.headers["X-Api-Key"] = api_key
 
     def _call(self, path: str, method: str = "GET", **kw):
+        """one api call. every failure leaves here as a LidarrError.
+
+        callers that want to react to a specific status catch
+        LidarrError and read .status_code; nothing raw escapes, so a
+        single flaky album cannot take down a whole run.
+        """
+        where = _safe_url(self.base)
         try:
             r = self.s.request(method, f"{self.base}/api/v1/{path}", timeout=60, **kw)
         except requests.ConnectionError as e:
             raise LidarrError(
-                f"Can't reach Lidarr at {self.base} — is it running, and is the "
+                f"Can't reach Lidarr at {where} — is it running, and is the "
                 f"URL right? (the address you use in your browser)") from e
         except requests.Timeout as e:
-            raise LidarrError(f"Lidarr at {self.base} timed out.") from e
+            raise LidarrError(f"Lidarr at {where} timed out.") from e
+        except requests.RequestException as e:
+            raise LidarrError(f"Lidarr request to {where} failed: {e}") from e
         if r.status_code == 401:
             raise LidarrError(
                 "Lidarr rejected the API key (401). Copy it from "
-                "Settings → General → Security → API Key.")
-        r.raise_for_status()
-        return r.json() if r.text else None
+                "Settings → General → Security → API Key.", status_code=401)
+        if r.status_code >= 400:
+            body = (r.text or "")[:200].strip()
+            raise LidarrError(
+                f"Lidarr returned HTTP {r.status_code}" + (f": {body}" if body else ""),
+                status_code=r.status_code, body=r.text or "")
+        try:
+            return r.json() if r.text else None
+        except ValueError as e:
+            raise LidarrError(
+                f"Lidarr sent something that isn't JSON (HTTP {r.status_code}). "
+                f"Is {where} really Lidarr, and not a proxy or login page?") from e
 
     def status(self) -> dict:
         return self._call("system/status")
@@ -79,7 +114,7 @@ class Lidarr:
         # filtered client-side; the query param varies across lidarr versions
         try:
             albums = self._call("album", params={"foreignAlbumId": rgid}) or []
-        except (LidarrError, requests.HTTPError):
+        except LidarrError:
             return None
         for a in albums:
             if a.get("foreignAlbumId") == rgid:
@@ -90,8 +125,9 @@ class Lidarr:
         try:
             self._call("album/monitor", method="PUT",
                        json={"albumIds": [album["id"]], "monitored": True})
-        except requests.HTTPError:
-            album["monitored"] = True
+        except LidarrError:
+            # older lidarr versions want the whole album resource instead
+            album = dict(album, monitored=True)
             self._call(f"album/{album['id']}", method="PUT", json=album)
 
     def lookup(self, rgid: str) -> dict | None:
@@ -99,10 +135,14 @@ class Lidarr:
         return results[0] if results else None
 
     def _row_id(self, created, rgid: str):
-        """the new row's id, from the post response or a follow-up lookup."""
+        """the new row's id, from the post response or a follow-up lookup.
+
+        the id is only needed in order to search later, so not finding it
+        is not worth losing a successful add over.
+        """
         if isinstance(created, dict) and created.get("id"):
             return created["id"]
-        found = self.find_album(rgid)
+        found = self.find_album(rgid)  # returns None on error
         return found.get("id") if found else None
 
     def add_album(self, rgid: str, quality_profile_id: int,
@@ -137,17 +177,18 @@ class Lidarr:
         album["addOptions"] = {"searchForNewAlbum": False}
         try:
             created = self._call("album", method="POST", json=album)
-        except requests.HTTPError as e:
-            body = e.response.text[:300] if e.response is not None else ""
-            code = e.response.status_code if e.response is not None else 0
-            conflict = (code == 409 or "UNIQUE constraint" in body
-                        or (code == 400 and "exist" in body.lower()))
+        except LidarrError as e:
+            body = (e.body or "")[:300]
+            conflict = (e.status_code == 409 or "UNIQUE constraint" in body
+                        or (e.status_code == 400 and "exist" in body.lower()))
             if not conflict:
-                raise LidarrError(f"HTTP {code}: {body or e}") from e
+                raise
             # the row appeared mid-run (artist side effect); monitor it
             found = self.find_album(rgid)
             if found is None:
-                raise LidarrError(f"conflict but album not found afterwards ({body})") from e
+                raise LidarrError(
+                    f"Lidarr says this album already exists but won't return it "
+                    f"({body})", status_code=e.status_code, body=e.body) from e
             if found.get("monitored"):
                 return "skipped", found.get("id")
             self.set_monitored(found)
@@ -176,9 +217,12 @@ class Lidarr:
             try:
                 self._call("album/monitor", method="PUT",
                            json={"albumIds": chunk, "monitored": True})
-            except requests.HTTPError:
+            except LidarrError:
                 for album_id in chunk:
-                    self.set_monitored({"id": album_id})
+                    try:
+                        self.set_monitored({"id": album_id})
+                    except LidarrError:
+                        pass  # best effort; the search still gets queued
 
     def search_albums(self, album_ids: list) -> tuple:
         """queue an AlbumSearch for these rows.
@@ -196,6 +240,6 @@ class Lidarr:
                 self._call("command", method="POST",
                            json={"name": "AlbumSearch", "albumIds": chunk})
                 queued += len(chunk)
-            except (LidarrError, requests.HTTPError) as e:
-                errors.append(_reason(e))
+            except LidarrError as e:
+                errors.append(str(e))
         return queued, errors

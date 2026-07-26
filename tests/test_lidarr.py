@@ -111,8 +111,8 @@ def test_add_album_recovers_the_id_after_a_conflict(monkeypatch):
         if path == "album/lookup":
             return [_lookup_payload()]
         if path == "album" and method == "POST":
-            raise requests.HTTPError(
-                "409", response=FakeResponse(409, "already exists"))
+            raise lidarr.LidarrError("Lidarr returned HTTP 409: already exists",
+                                     status_code=409, body="already exists")
         if path == "album/monitor":
             return None
         raise AssertionError(path)
@@ -207,8 +207,8 @@ def test_search_albums_reports_a_partial_failure():
     def handler(method, path, kw):
         seen["n"] += 1
         if seen["n"] == 2:
-            raise requests.HTTPError(
-                "500", response=FakeResponse(500, "indexer exploded"))
+            raise lidarr.LidarrError("Lidarr returned HTTP 500: indexer exploded",
+                                     status_code=500, body="indexer exploded")
         return None
 
     queued, errors = FakeLidarr(handler).search_albums(list(range(250)))

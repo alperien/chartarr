@@ -67,10 +67,21 @@ def _lucene_quote(s: str) -> str:
     return '"' + s.replace("\\", r"\\").replace('"', r"\"") + '"'
 
 
+class Unreachable(Exception):
+    """musicbrainz could not be asked; the answer is unknown, not 'no'."""
+
+
 def mb_search(query: str, limit: int = 8) -> dict | None:
-    """release-group search, paced and with retry."""
+    """release-group search, paced and with retry.
+
+    returns the parsed response, or None when musicbrainz answered but
+    the reply was unusable. raises Unreachable when every attempt failed
+    to get an answer at all -- callers must not read that as 'no match',
+    or a network blip gets recorded as a permanent miss.
+    """
     url = "https://musicbrainz.org/ws/2/release-group/?" + urllib.parse.urlencode(
         {"query": query, "fmt": "json", "limit": limit})
+    last = ""
     for attempt in range(6):
         wait = _last_request[0] + MIN_SPACING - time.monotonic()
         if wait > 0:
@@ -81,6 +92,9 @@ def mb_search(query: str, limit: int = 8) -> dict | None:
             with urllib.request.urlopen(req, timeout=30) as r:
                 return json.loads(r.read().decode("utf-8"))
         except urllib.error.HTTPError as e:
+            last = f"HTTP {e.code}"
+            if e.code in (400, 404):
+                return None  # a bad query is musicbrainz's real answer
             if e.code in (429, 503):
                 retry_after = e.headers.get("Retry-After")
                 try:
@@ -90,9 +104,10 @@ def mb_search(query: str, limit: int = 8) -> dict | None:
                 time.sleep(min(pause, 30))
             else:
                 time.sleep(2 ** attempt)
-        except Exception:
+        except Exception as e:  # noqa: BLE001 - network, dns, tls, bad json
+            last = f"{type(e).__name__}: {e}"
             time.sleep(2 ** attempt)
-    return None
+    raise Unreachable(last or "no answer from musicbrainz")
 
 
 def _credit_name(rg: dict) -> str:
@@ -144,9 +159,17 @@ def score_rgs(rgs: list[dict], t_vars: list[str], a_vars: list[str]) -> list[dic
 
 
 def match_row(title: str, artist: str) -> dict:
-    """look up one row; returns status, best fields, review candidates."""
+    """look up one row; returns status, best fields, review candidates.
+
+    status is matched, review, not_found, or unreachable. unreachable
+    means musicbrainz could not be asked and the row should be tried
+    again on the next run.
+    """
     t_vars = variants(title)
     a_vars = variants(artist)
+    if not t_vars or not a_vars:
+        # nothing left to search on once whitespace is stripped
+        return {"status": "not_found", "candidates": []}
 
     queries = [f"releasegroup:{_lucene_quote(t_vars[0])} AND artist:{_lucene_quote(a_vars[0])}"]
     for tv in t_vars[1:3]:
@@ -154,8 +177,16 @@ def match_row(title: str, artist: str) -> dict:
     queries.append(f"{t_vars[0]} {a_vars[0]}")
 
     pool: dict[str, dict] = {}
+    reached = False
     for q in queries:
-        data = mb_search(q)
+        try:
+            data = mb_search(q)
+        except Unreachable as e:
+            # a later query might still land; only give up if none did
+            if pool:
+                break
+            return {"status": "unreachable", "candidates": [], "error": str(e)}
+        reached = True
         if data:
             for cand in score_rgs(data.get("release-groups", []), t_vars, a_vars):
                 cur = pool.get(cand["release_group_mbid"])
@@ -167,6 +198,9 @@ def match_row(title: str, artist: str) -> dict:
 
     ranked = sorted(pool.values(), key=lambda c: c["_sort"], reverse=True)
     if not ranked:
+        if not reached:
+            return {"status": "unreachable", "candidates": [],
+                    "error": "no answer from musicbrainz"}
         return {"status": "not_found", "candidates": []}
 
     best = dict(ranked[0])
