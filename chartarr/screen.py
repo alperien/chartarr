@@ -121,6 +121,53 @@ def match_screen(events, total, base_counts):
     return counts, quit_
 
 
+def confirm_screen(title, lines, question, hint=""):
+    """draw a summary and wait for y/n. returns True if the user said yes.
+
+    the progress screens consume an event stream; this one draws once and
+    waits for a keypress, so it keeps its own small loop.
+    """
+    def loop(scr):
+        curses.curs_set(0)
+        accent = _accent()
+        dim = curses.A_DIM
+        scr.nodelay(False)
+        while True:
+            h, w = scr.getmaxyx()
+            scr.erase()
+            _put(scr, 0, 1, _fit(title, w - 2), accent)
+            for i, line in enumerate(lines):
+                _put(scr, 2 + i, 1, _fit(line, w - 2))
+            y = 3 + len(lines)
+            _put(scr, y, 1, _fit(question, w - 2), accent)
+            for i, line in enumerate(hint.split("\n") if hint else []):
+                _put(scr, y + 2 + i, 1, _fit(line, w - 2), dim)
+            _put(scr, h - 1, 1, _fit("y start downloads   n not now", w - 2), dim)
+            scr.refresh()
+            k = scr.getch()
+            if k in (ord("y"), ord("Y")):
+                return True
+            if k in (ord("n"), ord("N"), ord("q"), ord("Q"), 27):
+                return False
+
+    return _run(loop)
+
+
+def search_screen(events, total):
+    """events yields (label, state). returns (queued, quit_pressed)."""
+    queued = [0]
+
+    def feed():
+        for label, state in events:
+            if state != "failed":
+                queued[0] += 1
+            yield state, label
+
+    quit_ = _run(_progress, "asking lidarr to search", feed(), total,
+                 lambda: f"queued {queued[0]} of {total}", {"failed"})
+    return queued[0], quit_
+
+
 def push_screen(events, total):
     """events yields (label, outcome, err). returns (counts, failures, quit_pressed)."""
     counts: dict = {}

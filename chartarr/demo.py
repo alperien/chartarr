@@ -158,8 +158,33 @@ def run() -> None:
                 f"monitored {cli.accent(counts.get('monitored', 0))} · "
                 f"already there {cli.accent(counts.get('skipped', 0))}")
         print(line)
-        if not stopped:
-            cli.closing_line(push_rows, "artist")
+        if stopped:
+            print(cli.dim("demo over — nothing was saved or sent"))
+            return
+
+        # the download step, on the real screen
+        fresh = counts.get("added", 0) + counts.get("monitored", 0)
+        if fresh and screen.confirm_screen(
+                "pushed to lidarr",
+                [f"{cli._n(fresh, 'album')} monitored and ready to download.",
+                 "lidarr will not fetch them until something asks it to search."],
+                f"start downloads for {cli._n(fresh, 'album')}? [y/n]",
+                "this queries every indexer you have configured, once per album.\n"
+                "saying no leaves them monitored — you can search from lidarr\n"
+                "later, or rerun chartarr with --search."):
+            def search_events():
+                for _ in range(fresh):
+                    time.sleep(0.03)
+                    yield f"{cli._n(fresh, 'album')}", "queued"
+
+            queued, _ = screen.search_screen(search_events(), fresh)
+            print(f"searching for {cli.accent(queued)} of "
+                  f"{cli._n(fresh, 'album')} "
+                  + cli.dim("(simulated)"))
+        else:
+            print(cli.dim(f"{cli._n(fresh, 'album')} monitored, not searched"))
+
+        cli.closing_line(push_rows, "artist")
     except KeyboardInterrupt:
         print()
 

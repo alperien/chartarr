@@ -277,6 +277,70 @@ def _pick(items, wanted, label, key="name"):
     return items[0]
 
 
+def want_search(count: int, args) -> bool:
+    """decide whether to start downloads for the albums just pushed.
+
+    flags win. otherwise ask, when there is someone to ask: monitoring an
+    album does not fetch it, but searching sends real indexer queries, so
+    it should not happen behind anyone's back.
+    """
+    if args.no_search:
+        return False
+    if args.search:
+        return True
+    if not _screen_ok():
+        print(dim(f"{_n(count, 'album')} monitored but not searched — "
+                  f"rerun with --search, or search from lidarr"))
+        return False
+    return screen.confirm_screen(
+        "pushed to lidarr",
+        [f"{_n(count, 'album')} monitored and ready to download.",
+         "lidarr will not fetch them until something asks it to search."],
+        f"start downloads for {_n(count, 'album')}? [y/n]",
+        "this queries every indexer you have configured, once per album.\n"
+        "saying no leaves them monitored — you can search from lidarr\n"
+        "later, or rerun chartarr with --search.")
+
+
+def stage_search(api, ids, args) -> None:
+    """queue an AlbumSearch for the album ids this run touched."""
+    if not ids or not want_search(len(ids), args):
+        return
+
+    total = len(ids)
+    batches = [ids[i:i + lidarr.BATCH] for i in range(0, total, lidarr.BATCH)]
+    errors: list = []
+    print(f"asking lidarr to search for {_n(total, 'album')}")
+
+    def events():
+        for chunk in batches:
+            _, errs = api.search_albums(chunk)
+            errors.extend(errs)
+            label = f"{_n(len(chunk), 'album')}"
+            for _ in chunk:
+                yield label, ("failed" if errs else "queued")
+
+    if _screen_ok():
+        queued, _ = screen.search_screen(events(), total)
+    else:
+        queued = 0
+        for i, (label, state) in enumerate(events(), 1):
+            if state != "failed":
+                queued += 1
+            status(f"  {i}/{total}  {state}  {label}")
+        status_end()
+
+    if queued:
+        print(f"searching for {accent(queued)} of {_n(total, 'album')} "
+              + dim("(lidarr works through this in the background)"))
+    for err in errors[:4]:
+        print(dim(f"  search failed: {err}"))
+    if len(errors) > 4:
+        print(dim(f"  … and {len(errors) - 4} more"))
+    if errors and not queued:
+        print(dim("nothing was searched — the albums are still monitored"))
+
+
 def stage_push(items, artist_col, title_col, args, cfg) -> None:
     if not items:
         print(dim("nothing to push"))
@@ -288,6 +352,9 @@ def stage_push(items, artist_col, title_col, args, cfg) -> None:
             print(f"  {_one_line(row[artist_col])} — {_one_line(row[title_col])}")
         if len(items) > 12:
             print(dim(f"  … and {len(items) - 12} more"))
+        if not args.no_search:
+            print(dim(f"would then offer to search for up to "
+                      f"{_n(len(items), 'album')}"))
         return
 
     api = lidarr.Lidarr(cfg["lidarr_url"], cfg["api_key"])
@@ -298,13 +365,17 @@ def stage_push(items, artist_col, title_col, args, cfg) -> None:
     print(f"pushing {_n(len(items), 'album')} to lidarr "
           + dim(f"({qp['name']}, {rf['path']})"))
 
+    fresh: list = []  # ids of albums this run added or newly monitored
+
     def events():
         for it in items:
             row = it["row"]
             name = f"{_one_line(row[artist_col])} — {_one_line(row[title_col])}"
             try:
-                outcome = api.add_album(it["rgid"], qp["id"], mp["id"], rf["path"],
-                                        search=args.search)
+                outcome, album_id = api.add_album(
+                    it["rgid"], qp["id"], mp["id"], rf["path"])
+                if album_id and outcome in ("added", "monitored"):
+                    fresh.append(album_id)
                 yield name, outcome, None
             except lidarr.LidarrError as e:
                 yield name, "failed", str(e)
@@ -333,6 +404,21 @@ def stage_push(items, artist_col, title_col, args, cfg) -> None:
     if stopped:
         print(dim("stopped — the push is safe to rerun"))
         sys.exit(0)
+
+    # lidarr can unmonitor an album moments after it was added under an
+    # unmonitored artist (lidarr#5012). an unmonitored row gets searched
+    # and then ignored, so fix it before asking for downloads.
+    if fresh:
+        try:
+            lost = api.unmonitored_among(fresh)
+            if lost:
+                api.monitor_albums(lost)
+                print(dim(f"re-monitored {_n(len(lost), 'album')} lidarr "
+                          f"had quietly unmonitored"))
+        except lidarr.LidarrError as e:
+            print(dim(f"could not verify monitoring: {e}"))
+
+    stage_search(api, fresh, args)
 
 
 def _year(value: str):
@@ -374,7 +460,11 @@ def build_parser() -> argparse.ArgumentParser:
     stage.add_argument("--push-only", action="store_true", help="just the push")
     p.add_argument("--yes", "-y", action="store_true", help="skip review")
     p.add_argument("--dry-run", action="store_true", help="show what would be pushed")
-    p.add_argument("--search", action="store_true", help="have lidarr search for added albums")
+    search = p.add_mutually_exclusive_group()
+    search.add_argument("--search", action="store_true",
+                        help="start downloads without asking")
+    search.add_argument("--no-search", action="store_true",
+                        help="never start downloads, don't ask")
     p.add_argument("--quality-profile", help="lidarr quality profile (default: first)")
     p.add_argument("--metadata-profile", help="lidarr metadata profile (default: first)")
     p.add_argument("--root-folder", help="lidarr root folder (default: first)")

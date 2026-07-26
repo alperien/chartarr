@@ -19,7 +19,7 @@ is installed automatically.
 
     chartarr chart.csv
 
-This runs three stages:
+This runs four stages:
 
 1. **Match.** Each artist/title pair is looked up on MusicBrainz.
    Requests are limited to one per second, per the MusicBrainz rate
@@ -36,9 +36,20 @@ This runs three stages:
    monitoring disabled, so only the listed albums are monitored.
    Albums already in Lidarr are skipped; albums Lidarr knows but does
    not monitor are set to monitored. This stage is safe to re-run.
+4. **Download.** Monitoring an album does not fetch it — Lidarr only
+   looks for files when something asks it to search. chartarr reports
+   what the push landed and asks whether to start downloads for it.
+   Answering yes queues a Lidarr album search, which is the same thing
+   the Search button in the Lidarr UI does. Answering no leaves the
+   albums monitored, for Lidarr's own scheduled task or a later run.
+
+Only albums this run added or newly monitored are offered for download;
+albums that were already monitored are left alone, so re-running does
+not re-grab anything.
 
 When output is piped or no terminal is available, the progress screens
-are replaced by plain line output.
+are replaced by plain line output, and the download step does nothing
+unless `--search` was passed — there is nobody to ask.
 
 On first run, chartarr asks for the Lidarr URL and API key (Settings >
 General > Security) and stores them in `~/.config/chartarr/config.json`.
@@ -47,13 +58,14 @@ precedence over the file.
 
 To try it without your own data: `chartarr --example` writes a small
 sample CSV, and `chartarr --demo` simulates a full run (match, review,
-push) on sample data without saving or sending anything.
+push, download) on sample data without saving or sending anything.
 
 ## Options
 
     --dry-run           show what would be pushed without changing anything
     --yes               skip the review stage
-    --search            trigger a Lidarr search for added albums
+    --search            start downloads without asking
+    --no-search         never start downloads, don't ask
     --match-only        run only the match stage
     --review-only       run only the review stage
     --push-only         run only the push stage
@@ -76,6 +88,14 @@ columns are ignored. RateYourMusic exports work without changes.
   what chartarr matches.
 - MusicBrainz allows one request per second per client. Do not run
   multiple instances at once.
+- A search queries every indexer you have configured, once per album, so
+  a large chart is a lot of requests. Lidarr queues the work and gets
+  through it in the background; chartarr exits once it is handed over.
+- Adding an album under an unmonitored artist can make Lidarr unmonitor
+  it again moments later ([Lidarr#5012][]). chartarr re-checks the albums
+  it pushed and restores monitoring before searching.
+
+[Lidarr#5012]: https://github.com/Lidarr/Lidarr/issues/5012
 
 ## License
 

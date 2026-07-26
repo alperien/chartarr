@@ -3,6 +3,13 @@
 adding an artist makes lidarr quietly create rows for their whole
 discography, unmonitored. re-adding one of those albums 409s, so
 add_album finds the existing row and flips it to monitored instead.
+
+monitoring an album is not enough to get the files: lidarr only fetches
+when something asks it to search. that is the AlbumSearch command, which
+search_albums sends once the push is done. add-time searching is not
+used, because lidarr drops it when the artist is added unmonitored
+(lidarr#5012) -- the same race unmonitored_among/monitor_albums exist to
+clean up after.
 """
 from __future__ import annotations
 
@@ -10,9 +17,25 @@ import time
 
 import requests
 
+BATCH = 100
+
 
 class LidarrError(Exception):
     """an error worth showing the user."""
+
+
+def _chunks(seq: list, size: int):
+    for i in range(0, len(seq), size):
+        yield seq[i:i + size]
+
+
+def _reason(e: Exception) -> str:
+    """a short, readable cause for a failed call."""
+    resp = getattr(e, "response", None)
+    if resp is not None:
+        body = (resp.text or "")[:200].strip()
+        return f"HTTP {resp.status_code}" + (f": {body}" if body else "")
+    return str(e)
 
 
 class Lidarr:
@@ -75,16 +98,27 @@ class Lidarr:
         results = self._call("album/lookup", params={"term": f"lidarr:{rgid}"})
         return results[0] if results else None
 
+    def _row_id(self, created, rgid: str):
+        """the new row's id, from the post response or a follow-up lookup."""
+        if isinstance(created, dict) and created.get("id"):
+            return created["id"]
+        found = self.find_album(rgid)
+        return found.get("id") if found else None
+
     def add_album(self, rgid: str, quality_profile_id: int,
-                  metadata_profile_id: int, root_folder: str,
-                  search: bool = False) -> str:
-        """add one release group; returns added, monitored or skipped."""
+                  metadata_profile_id: int, root_folder: str) -> tuple:
+        """add one release group.
+
+        returns (outcome, album_id). outcome is added, monitored or
+        skipped; album_id is lidarr's row id, or None when lidarr did not
+        report one and a follow-up lookup could not find it.
+        """
         existing = self.find_album(rgid)
         if existing is not None:
             if existing.get("monitored"):
-                return "skipped"
+                return "skipped", existing.get("id")
             self.set_monitored(existing)
-            return "monitored"
+            return "monitored", existing.get("id")
 
         album = self.lookup(rgid)
         if album is None:
@@ -99,9 +133,10 @@ class Lidarr:
         })
         album["artist"] = artist
         album["monitored"] = True
-        album["addOptions"] = {"searchForNewAlbum": bool(search)}
+        # searching happens later, via the AlbumSearch command
+        album["addOptions"] = {"searchForNewAlbum": False}
         try:
-            self._call("album", method="POST", json=album)
+            created = self._call("album", method="POST", json=album)
         except requests.HTTPError as e:
             body = e.response.text[:300] if e.response is not None else ""
             code = e.response.status_code if e.response is not None else 0
@@ -114,13 +149,53 @@ class Lidarr:
             if found is None:
                 raise LidarrError(f"conflict but album not found afterwards ({body})") from e
             if found.get("monitored"):
-                return "skipped"
+                return "skipped", found.get("id")
             self.set_monitored(found)
-            return "monitored"
+            return "monitored", found.get("id")
         time.sleep(0.2)  # be gentle
-        return "added"
+        return "added", self._row_id(created, rgid)
 
-    def search_albums(self, album_ids: list[int]) -> None:
-        for i in range(0, len(album_ids), 100):
-            self._call("command", method="POST",
-                       json={"name": "AlbumSearch", "albumIds": album_ids[i:i + 100]})
+    def unmonitored_among(self, album_ids: list) -> list:
+        """which of these rows lidarr currently has unmonitored.
+
+        lidarr's post-add handler can unmonitor an album moments after it
+        was added with the artist left unmonitored (lidarr#5012), which
+        would leave it out of any search. one library read is cheaper than
+        a status call per album.
+        """
+        wanted = {i for i in album_ids if i is not None}
+        if not wanted:
+            return []
+        return [a["id"] for a in self.all_albums()
+                if a.get("id") in wanted and not a.get("monitored")]
+
+    def monitor_albums(self, album_ids: list) -> None:
+        """flip these rows to monitored, in batches."""
+        ids = [i for i in album_ids if i is not None]
+        for chunk in _chunks(ids, BATCH):
+            try:
+                self._call("album/monitor", method="PUT",
+                           json={"albumIds": chunk, "monitored": True})
+            except requests.HTTPError:
+                for album_id in chunk:
+                    self.set_monitored({"id": album_id})
+
+    def search_albums(self, album_ids: list) -> tuple:
+        """queue an AlbumSearch for these rows.
+
+        this is what actually starts downloads: lidarr searches its
+        indexers and grabs what it finds. returns (queued, errors) so a
+        batch that fails partway is visible rather than silent.
+        """
+        ids = [i for i in album_ids if i is not None]
+        if not ids:
+            return 0, []
+        queued, errors = 0, []
+        for chunk in _chunks(ids, BATCH):
+            try:
+                self._call("command", method="POST",
+                           json={"name": "AlbumSearch", "albumIds": chunk})
+                queued += len(chunk)
+            except (LidarrError, requests.HTTPError) as e:
+                errors.append(_reason(e))
+        return queued, errors
