@@ -354,7 +354,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--example", action="store_true",
                    help="write sample.csv to the current directory")
     p.add_argument("--demo", action="store_true",
-                   help="open the review screen with sample data")
+                   help="simulate a full run with sample data")
     p.add_argument("--version", action="version", version=f"chartarr {__version__}")
     return p
 

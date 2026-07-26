@@ -18,3 +18,10 @@ def test_demo_covers_the_interesting_states():
     assert "review" in statuses
     assert "not_found" in statuses
     assert max(len(res["candidates"]) for _, res in ITEMS) >= 2
+
+
+def test_demo_catalog_is_well_formed():
+    from chartarr.demo import CATALOG
+    assert len(CATALOG) >= 30
+    for artist, title, year, genre in CATALOG:
+        assert artist and title and year and genre
