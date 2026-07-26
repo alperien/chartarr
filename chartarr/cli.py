@@ -257,11 +257,13 @@ def import_set(rows, state: State) -> list[dict]:
         if row is None:
             continue
         if res["status"] == "matched":
-            out.append({"key": key, "row": row, "rgid": res["release_group_mbid"]})
+            out.append({"key": key, "row": row, "rgid": res["release_group_mbid"],
+                        "artist_mbid": res.get("artist_mbid")})
         else:
             d = state.decisions.get(key)
             if d and d.get("action") == "accept":
-                out.append({"key": key, "row": row, "rgid": d["mbid"]})
+                out.append({"key": key, "row": row, "rgid": d["mbid"],
+                            "artist_mbid": d.get("artist_mbid")})
     return out
 
 
@@ -298,13 +300,27 @@ def stage_push(items, artist_col, title_col, args, cfg) -> None:
     print(f"pushing {_n(len(items), 'album')} to lidarr "
           + dim(f"({qp['name']}, {rf['path']})"))
 
+    # albums by the same artist have to be named together on the first add:
+    # lidarr's post-add scan unmonitors anything not in albumsToMonitor
+    by_artist: dict[str, list[str]] = {}
+    for it in items:
+        aid = it.get("artist_mbid")
+        if aid:
+            by_artist.setdefault(aid, []).append(it["rgid"])
+
+    touched: list[int] = []
+
     def events():
         for it in items:
             row = it["row"]
             name = f"{_one_line(row[artist_col])} — {_one_line(row[title_col])}"
+            siblings = by_artist.get(it.get("artist_mbid") or "", [])
             try:
-                outcome = api.add_album(it["rgid"], qp["id"], mp["id"], rf["path"],
-                                        search=args.search)
+                outcome, album_id = api.add_album(
+                    it["rgid"], qp["id"], mp["id"], rf["path"],
+                    search=args.search, also_monitor=siblings)
+                if album_id and outcome in ("added", "monitored"):
+                    touched.append(album_id)
                 yield name, outcome, None
             except lidarr.LidarrError as e:
                 yield name, "failed", str(e)
@@ -326,6 +342,14 @@ def stage_push(items, artist_col, title_col, args, cfg) -> None:
     if counts.get("failed"):
         line += f" · failed {accent(counts['failed'])}"
     print(line)
+    if args.search and touched:
+        # lidarr's per-album searchForNewAlbum flag doesn't fire for albums
+        # that were only flipped to monitored, so ask for the search here
+        try:
+            api.search_albums(touched)
+            print(dim(f"asked lidarr to search for {_n(len(touched), 'album')}"))
+        except lidarr.LidarrError as e:
+            print(dim(f"search request failed: {e}"))
     for f_ in failures[:8]:
         print(dim(f"  {f_}"))
     if len(failures) > 8:
