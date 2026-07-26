@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import getpass
 import hashlib
 import json
 import os
@@ -57,7 +58,10 @@ def status(line: str) -> None:
     if not sys.stdout.isatty():
         return
     width = shutil.get_terminal_size().columns - 1
-    sys.stdout.write("\r" + line[:width].ljust(width))
+    # truncate and pad by display cells, not code points — a cjk label is
+    # wider than len() says, and overflowing the row garbles the redraw
+    line = screen._fit(line, width)
+    sys.stdout.write("\r" + line + " " * max(0, width - screen.cells(line)))
     sys.stdout.flush()
 
 
@@ -84,9 +88,13 @@ def load_config() -> dict:
     p = config_path()
     if p.exists():
         try:
-            cfg = json.loads(p.read_text())
+            data = json.loads(p.read_text())
         except json.JSONDecodeError:
-            pass
+            data = None
+        # a config that parses but isn't an object is as unusable as one
+        # that doesn't parse; either way --setup rewrites it
+        if isinstance(data, dict):
+            cfg = data
     url = os.environ.get("CHARTARR_LIDARR_URL") or os.environ.get("LIDARR_URL")
     key = os.environ.get("CHARTARR_API_KEY") or os.environ.get("LIDARR_API_KEY")
     if url:
@@ -96,24 +104,41 @@ def load_config() -> dict:
     return cfg
 
 
+def _ask(prompt: str, secret: bool = False) -> str:
+    # getpass keeps the api key out of the scrollback and out of recordings
+    try:
+        return (getpass.getpass(prompt) if secret else input(prompt)).strip()
+    except (EOFError, KeyboardInterrupt):
+        print(file=sys.stderr)  # step off the interrupted prompt line
+        fail("setup cancelled — nothing was saved")
+        return ""  # unreachable; fail() exits
+
+
 def setup_wizard(existing: dict) -> dict:
+    if not sys.stdin.isatty():
+        fail("lidarr isn't set up and there's no terminal to ask on — set "
+             "LIDARR_URL and LIDARR_API_KEY, or run chartarr --setup in a terminal")
     default = existing.get("lidarr_url", "http://localhost:8686")
-    url = input(f"lidarr url [{default}]: ").strip() or default
-    key = input("api key (lidarr: settings > general > security): ").strip() \
+    url = _ask(f"lidarr url [{default}]: ") or default
+    key = _ask("api key (lidarr: settings > general > security): ", secret=True) \
         or existing.get("api_key", "")
     try:
         version = lidarr.Lidarr(url, key).status().get("version", "")
         print(dim(f"connected to lidarr {version}"))
     except lidarr.LidarrError as e:
         print(f"chartarr: {e}", file=sys.stderr)
-        if input("save anyway? [y/N] ").strip().lower() != "y":
+        if _ask("save anyway? [y/N] ").lower() != "y":
             sys.exit(1)
     cfg = {"lidarr_url": url, "api_key": key}
     p = config_path()
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(json.dumps(cfg, indent=2) + "\n")
+    # the file holds an api key: owner-only from the first byte, because
+    # create-then-chmod leaves a window where it's readable at umask perms
+    with open(p, "w", encoding="utf-8",
+              opener=lambda path, flags: os.open(path, flags, 0o600)) as f:
+        f.write(json.dumps(cfg, indent=2) + "\n")
     try:
-        p.chmod(0o600)
+        p.chmod(0o600)  # tighten configs written before the 0600 open existed
     except OSError:
         pass
     return cfg
@@ -191,10 +216,21 @@ def _row_key(artist: str, title: str) -> str:
 
 
 def load_csv(path: Path):
-    with path.open(newline="", encoding="utf-8-sig") as f:
-        reader = csv.DictReader(f)
-        rows = list(reader)
-        cols = reader.fieldnames or []
+    try:
+        with path.open(newline="", encoding="utf-8-sig") as f:
+            reader = csv.DictReader(f)
+            rows = list(reader)
+            cols = reader.fieldnames or []
+    except UnicodeDecodeError:
+        fail(f"{path} isn't utf-8 — re-save it as utf-8 "
+             '(in excel: "csv utf-8") and rerun')
+    except csv.Error as e:
+        hint = (' — excel\'s "unicode text" export is utf-16, which does '
+                'this; re-save as "csv utf-8" and rerun'
+                if "NUL" in str(e) else "")
+        fail(f"can't parse {path}: {e}{hint}")
+    except OSError as e:
+        fail(f"can't read {path}: {e.strerror or e}")
     if not rows:
         fail(f"{path} has no data rows")
     lookup = {c.lower().strip(): c for c in cols}
@@ -456,8 +492,31 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv=None) -> None:
-    args = build_parser().parse_args(argv)
+    try:
+        try:
+            _main(build_parser().parse_args(argv))
+        except KeyboardInterrupt:
+            # covers ctrl-c anywhere — csv loading, state replay, a wizard
+            # network call — not just the matching/push loops
+            status_end()
+            print(dim("stopped — progress is saved, rerun to resume"))
+            sys.exit(130)
+        finally:
+            # flush inside the try so a closed pipe surfaces here as a
+            # catchable BrokenPipeError, not in the interpreter's exit
+            # flush (which prints "Exception ignored" and exits 120)
+            sys.stdout.flush()
+    except BrokenPipeError:
+        # whatever we were piped into went away (head, a pager quit early);
+        # park stdout on devnull so the exit flush stays quiet
+        try:
+            os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
+        except (OSError, ValueError):
+            pass
+        sys.exit(1)
 
+
+def _main(args) -> None:
     if args.example:
         p = Path("sample.csv")
         if p.exists():
@@ -485,8 +544,12 @@ def main(argv=None) -> None:
     rows, artist_col, title_col = load_csv(csv_path)
     print(dim(f"{csv_path.name}: {_n(len(rows), 'album')}"))
 
-    state = State(Path(args.state) if args.state else
+    state_path = (Path(args.state) if args.state else
                   csv_path.with_suffix(csv_path.suffix + ".chartarr.jsonl"))
+    try:
+        state = State(state_path)
+    except OSError as e:
+        fail(f"can't read the state file {state_path}: {e.strerror or e}")
 
     if args.rematch:
         stale = [k for k, res in state.results.items()
@@ -511,10 +574,6 @@ def main(argv=None) -> None:
             stage_push(items, artist_col, title_col, args, cfg)
             if items and not args.dry_run:
                 closing_line([it["row"] for it in items], artist_col)
-    except KeyboardInterrupt:
-        status_end()
-        print(dim("stopped — progress is saved, rerun to resume"))
-        sys.exit(130)
     except lidarr.LidarrError as e:
         fail(str(e))
 

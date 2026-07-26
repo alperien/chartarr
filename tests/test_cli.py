@@ -109,3 +109,176 @@ def test_state_ignores_junk_records(tmp_path):
     path.write_text('[]\n"nope"\n{"no_key": 1}\n{"key": "a", "status": "matched"}\n',
                     encoding="utf-8")
     assert list(State(path).results) == ["a"]
+
+
+# --- hardening: broken input fails cleanly instead of crashing ---
+
+import io
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+from chartarr import cli
+from chartarr.cli import fail, load_config, setup_wizard
+
+REPO = Path(__file__).resolve().parents[1]
+
+
+@pytest.fixture
+def config_home(tmp_path, monkeypatch):
+    """point the config at tmp and silence the env overrides."""
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    for var in ("CHARTARR_LIDARR_URL", "LIDARR_URL",
+                "CHARTARR_API_KEY", "LIDARR_API_KEY"):
+        monkeypatch.delenv(var, raising=False)
+    p = tmp_path / "chartarr" / "config.json"
+    p.parent.mkdir(parents=True)
+    return p
+
+
+class _Tty:
+    """stdin stand-in that claims to be a terminal."""
+
+    def isatty(self):
+        return True
+
+
+def test_fail_prints_prefixed_message_and_exits_1(capsys):
+    with pytest.raises(SystemExit) as exc:
+        fail("something went sideways")
+    assert exc.value.code == 1
+    assert capsys.readouterr().err == "chartarr: something went sideways\n"
+
+
+def test_config_that_is_not_an_object_is_ignored(config_home):
+    # a config.json holding [] or "hello" used to crash at startup with
+    # AttributeError: 'list' object has no attribute 'get'
+    for junk in ("[]", '"hello"', "3"):
+        config_home.write_text(junk, encoding="utf-8")
+        assert load_config() == {}
+
+
+def test_env_still_wins_over_a_junk_config(config_home, monkeypatch):
+    config_home.write_text("[]", encoding="utf-8")
+    monkeypatch.setenv("LIDARR_URL", "http://example:8686")
+    assert load_config()["lidarr_url"] == "http://example:8686"
+
+
+def test_load_csv_latin1_fails_with_utf8_advice(tmp_path, capsys):
+    p = tmp_path / "latin.csv"
+    p.write_bytes("title,artist\nsmørrebrød,æ\n".encode("latin-1"))
+    with pytest.raises(SystemExit) as exc:
+        load_csv(p)
+    assert exc.value.code == 1
+    err = capsys.readouterr().err
+    assert err.startswith("chartarr: ")
+    assert "utf-8" in err and str(p) in err
+
+
+def test_load_csv_utf16_mentions_excels_unicode_export(tmp_path, capsys):
+    # excel's "unicode text" export is utf-16: ascii bytes with NULs
+    # in between, which the csv module rejects with "line contains NUL"
+    p = tmp_path / "chart.csv"
+    p.write_bytes("title\tartist\nRumours\tFleetwood Mac\n".encode("utf-16-le"))
+    with pytest.raises(SystemExit) as exc:
+        load_csv(p)
+    assert exc.value.code == 1
+    err = capsys.readouterr().err
+    assert "excel" in err and "utf-16" in err
+
+
+def test_load_csv_on_a_directory_fails_cleanly(tmp_path, capsys):
+    with pytest.raises(SystemExit):
+        load_csv(tmp_path)
+    assert "can't read" in capsys.readouterr().err
+
+
+def test_setup_wizard_refuses_to_prompt_without_a_tty(monkeypatch, capsys):
+    # `chartarr x.csv --push-only < /dev/null` used to die with EOFError
+    monkeypatch.setattr(sys, "stdin", io.StringIO(""))  # isatty() is False
+    with pytest.raises(SystemExit) as exc:
+        setup_wizard({})
+    assert exc.value.code == 1
+    err = capsys.readouterr().err
+    assert "LIDARR_URL" in err and "LIDARR_API_KEY" in err and "--setup" in err
+
+
+def test_setup_wizard_eof_at_a_prompt_cancels_cleanly(monkeypatch, capsys):
+    monkeypatch.setattr(sys, "stdin", _Tty())
+
+    def eof(prompt=""):
+        raise EOFError
+
+    monkeypatch.setattr("builtins.input", eof)
+    with pytest.raises(SystemExit) as exc:
+        setup_wizard({})
+    assert exc.value.code == 1
+    assert "setup cancelled" in capsys.readouterr().err
+
+
+def test_setup_wizard_ctrl_c_at_a_prompt_cancels_cleanly(monkeypatch, capsys):
+    monkeypatch.setattr(sys, "stdin", _Tty())
+
+    def interrupt(prompt=""):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr("builtins.input", interrupt)
+    with pytest.raises(SystemExit) as exc:
+        setup_wizard({})
+    assert exc.value.code == 1
+    assert "setup cancelled" in capsys.readouterr().err
+
+
+def test_setup_wizard_key_goes_through_getpass_and_file_is_0600(
+        config_home, monkeypatch):
+    monkeypatch.setattr(sys, "stdin", _Tty())
+    prompts = {"input": [], "getpass": []}
+
+    def fake_input(prompt=""):
+        prompts["input"].append(prompt)
+        return "http://lidarr:8686"
+
+    def fake_getpass(prompt=""):
+        prompts["getpass"].append(prompt)
+        return "s3kret"
+
+    class Api:
+        def __init__(self, url, key):
+            pass
+
+        def status(self):
+            return {"version": "2.0"}
+
+    monkeypatch.setattr("builtins.input", fake_input)
+    monkeypatch.setattr(cli.getpass, "getpass", fake_getpass)
+    monkeypatch.setattr(cli.lidarr, "Lidarr", Api)
+    # the perms must come from creation, not from the chmod afterthought
+    monkeypatch.setattr(Path, "chmod", lambda *a, **kw: None)
+    old_umask = os.umask(0o022)
+    try:
+        cfg = setup_wizard({})
+    finally:
+        os.umask(old_umask)
+    assert cfg == {"lidarr_url": "http://lidarr:8686", "api_key": "s3kret"}
+    assert json.loads(config_home.read_text())["api_key"] == "s3kret"
+    assert (config_home.stat().st_mode & 0o777) == 0o600
+    assert any("api key" in p for p in prompts["getpass"])
+    assert not any("api key" in p for p in prompts["input"])
+
+
+def test_broken_pipe_exits_quietly_not_120(tmp_path):
+    # `chartarr ... | head -0` used to end with "Exception ignored ...
+    # BrokenPipeError" from the interpreter's exit flush, exit code 120
+    chart = tmp_path / "c.csv"
+    chart.write_text("title,artist\nRumours,Fleetwood Mac\n", encoding="utf-8")
+    env = {**os.environ, "XDG_CONFIG_HOME": str(tmp_path)}
+    proc = subprocess.Popen(
+        [sys.executable, "-m", "chartarr", str(chart), "--push-only", "--dry-run"],
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env, cwd=str(REPO))
+    proc.stdout.close()  # the reader goes away before chartarr can flush
+    err = proc.stderr.read()
+    proc.stderr.close()
+    assert proc.wait(timeout=30) == 1
+    assert b"BrokenPipeError" not in err and b"Traceback" not in err
