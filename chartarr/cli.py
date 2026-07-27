@@ -46,12 +46,12 @@ def _screen_ok() -> bool:
 
 
 def _accent_code() -> str:
-    # 256-colour rose where it's available, magenta everywhere else; matches
+    # 256-colour cherry where it's available, red everywhere else; matches
     # what the curses screens pick so piped output and the tui agree
     term = os.environ.get("TERM", "")
     if "256color" in term or os.environ.get("COLORTERM") in ("truecolor", "24bit"):
-        return f"38;5;{screen.ROSE_256}"
-    return "35"
+        return f"38;5;{screen.CHERRY_256}"
+    return "31"
 
 
 def accent(s) -> str:
