@@ -5,10 +5,10 @@ dist/
 build/
 .venv/
 .pytest_cache/
+.coverage
 
 # chartarr state files
 *.chartarr.jsonl
 
-# keep personal charts out of the repo (the example stays)
+# keep personal charts out of the repo (--example writes sample.csv)
 *.csv
-!examples/*.csv
