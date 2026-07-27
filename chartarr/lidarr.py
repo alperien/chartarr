@@ -1,11 +1,17 @@
 """small lidarr api client.
 
-adding an artist makes lidarr quietly create rows for their whole
-discography, unmonitored. re-adding one of those albums 409s, so
-add_album finds the existing row and flips it to monitored instead.
+adding an album means adding its artist too, and lidarr then fills in the
+artist's whole discography in the background. the trick is to tell lidarr
+which albums to keep monitored while that happens: addOptions.albumsToMonitor
+names them, and everything else in the discography is left unmonitored.
+
+do not be tempted by addOptions.monitor = "none". lidarr force-unmonitors the
+artist when it sees that, and the post-add scan then unmonitors every album
+including the one just added.
 """
 from __future__ import annotations
 
+import json
 import time
 
 import requests
@@ -13,6 +19,41 @@ import requests
 
 class LidarrError(Exception):
     """an error worth showing the user."""
+
+    def __init__(self, message: str, status: int = 0, body: str = ""):
+        super().__init__(message)
+        self.status = status
+        self.body = body
+
+
+def _is_duplicate(status: int, body: str) -> bool:
+    """true if lidarr is saying "this album is already here".
+
+    newer lidarr rejects duplicates with a 400 from AlbumExistsValidator;
+    older versions let the insert hit the unique index and return 409.
+    the 400 body has to be read properly: several unrelated validation
+    failures ("Quality Profile does not exist") also say "exist".
+    """
+    if status == 409 or "UNIQUE constraint" in body:
+        return True
+    if status != 400:
+        return False
+    try:
+        failures = json.loads(body)
+    except ValueError:
+        return False
+    if not isinstance(failures, list):
+        return False
+    for f in failures:
+        if not isinstance(f, dict):
+            continue
+        if (f.get("propertyName") or "").lower() == "foreignalbumid":
+            return True
+        if f.get("errorCode") == "AlbumExistsValidator":
+            return True
+        if "already been added" in (f.get("errorMessage") or "").lower():
+            return True
+    return False
 
 
 class Lidarr:
@@ -22,20 +63,39 @@ class Lidarr:
         self.s.headers["X-Api-Key"] = api_key
 
     def _call(self, path: str, method: str = "GET", **kw):
+        url = f"{self.base}/api/v1/{path}"
         try:
-            r = self.s.request(method, f"{self.base}/api/v1/{path}", timeout=60, **kw)
+            r = self.s.request(method, url, timeout=60, **kw)
         except requests.ConnectionError as e:
             raise LidarrError(
                 f"Can't reach Lidarr at {self.base} — is it running, and is the "
                 f"URL right? (the address you use in your browser)") from e
         except requests.Timeout as e:
             raise LidarrError(f"Lidarr at {self.base} timed out.") from e
+        except (requests.exceptions.InvalidSchema,
+                requests.exceptions.MissingSchema,
+                requests.exceptions.InvalidURL) as e:
+            raise LidarrError(
+                f"{self.base} is not a URL Lidarr can be reached at — it needs "
+                f"to start with http:// or https://") from e
+        except requests.RequestException as e:
+            raise LidarrError(f"Lidarr request failed: {e}") from e
+
         if r.status_code == 401:
             raise LidarrError(
                 "Lidarr rejected the API key (401). Copy it from "
-                "Settings → General → Security → API Key.")
-        r.raise_for_status()
-        return r.json() if r.text else None
+                "Settings → General → Security → API Key.", status=401)
+        if r.status_code >= 400:
+            raise LidarrError(f"HTTP {r.status_code}: {r.text[:300] or 'no details'}",
+                              status=r.status_code, body=r.text)
+        if not r.text:
+            return None
+        try:
+            return r.json()
+        except ValueError as e:
+            raise LidarrError(
+                f"Lidarr returned something that isn't JSON — is {self.base} "
+                f"really Lidarr, and not a login page or another service?") from e
 
     def status(self) -> dict:
         return self._call("system/status")
@@ -49,15 +109,14 @@ class Lidarr:
     def root_folders(self) -> list[dict]:
         return self._call("rootfolder")
 
-    def all_albums(self) -> list[dict]:
-        return self._call("album") or []
-
     def find_album(self, rgid: str) -> dict | None:
-        # filtered client-side; the query param varies across lidarr versions
+        # filtered server-side; re-checked here because old versions ignore it
         try:
             albums = self._call("album", params={"foreignAlbumId": rgid}) or []
-        except (LidarrError, requests.HTTPError):
-            return None
+        except LidarrError as e:
+            if e.status and e.status < 500:
+                return None
+            raise
         for a in albums:
             if a.get("foreignAlbumId") == rgid:
                 return a
@@ -67,7 +126,7 @@ class Lidarr:
         try:
             self._call("album/monitor", method="PUT",
                        json={"albumIds": [album["id"]], "monitored": True})
-        except requests.HTTPError:
+        except LidarrError:
             album["monitored"] = True
             self._call(f"album/{album['id']}", method="PUT", json=album)
 
@@ -77,48 +136,62 @@ class Lidarr:
 
     def add_album(self, rgid: str, quality_profile_id: int,
                   metadata_profile_id: int, root_folder: str,
-                  search: bool = False) -> str:
-        """add one release group; returns added, monitored or skipped."""
+                  search: bool = False,
+                  also_monitor: list[str] | None = None) -> tuple[str, int | None]:
+        """add one release group.
+
+        returns (outcome, album_id) where outcome is added, monitored or
+        skipped. also_monitor lists other release groups by the same artist
+        that this run will push, so they survive lidarr's post-add scan.
+        """
         existing = self.find_album(rgid)
         if existing is not None:
             if existing.get("monitored"):
-                return "skipped"
+                return "skipped", existing.get("id")
             self.set_monitored(existing)
-            return "monitored"
+            return "monitored", existing.get("id")
 
         album = self.lookup(rgid)
         if album is None:
-            raise LidarrError("MusicBrainz ID not found by Lidarr's lookup")
+            raise LidarrError(
+                "Lidarr's lookup didn't find this MusicBrainz ID; it needs a "
+                "release group ID, not a release ID")
+        wanted = [rgid] + [r for r in (also_monitor or []) if r != rgid]
         artist = album["artist"]
         artist.update({
             "qualityProfileId": quality_profile_id,
             "metadataProfileId": metadata_profile_id,
             "rootFolderPath": root_folder,
             "monitored": True,
-            "addOptions": {"monitor": "none", "searchForMissingAlbums": False},
+            # leave future releases alone; the default is "all"
+            "monitorNewItems": "none",
+            "addOptions": {
+                # anything but "none": that flag force-unmonitors the artist
+                "monitor": "existing",
+                "albumsToMonitor": wanted,
+                "searchForMissingAlbums": False,
+            },
         })
         album["artist"] = artist
         album["monitored"] = True
         album["addOptions"] = {"searchForNewAlbum": bool(search)}
         try:
-            self._call("album", method="POST", json=album)
-        except requests.HTTPError as e:
-            body = e.response.text[:300] if e.response is not None else ""
-            code = e.response.status_code if e.response is not None else 0
-            conflict = (code == 409 or "UNIQUE constraint" in body
-                        or (code == 400 and "exist" in body.lower()))
-            if not conflict:
-                raise LidarrError(f"HTTP {code}: {body or e}") from e
+            created = self._call("album", method="POST", json=album)
+        except LidarrError as e:
+            if not _is_duplicate(e.status, e.body):
+                raise
             # the row appeared mid-run (artist side effect); monitor it
             found = self.find_album(rgid)
             if found is None:
-                raise LidarrError(f"conflict but album not found afterwards ({body})") from e
+                raise LidarrError(
+                    f"Lidarr says this album already exists but won't return "
+                    f"it ({e.body[:200]})") from e
             if found.get("monitored"):
-                return "skipped"
+                return "skipped", found.get("id")
             self.set_monitored(found)
-            return "monitored"
+            return "monitored", found.get("id")
         time.sleep(0.2)  # be gentle
-        return "added"
+        return "added", (created or {}).get("id")
 
     def search_albums(self, album_ids: list[int]) -> None:
         for i in range(0, len(album_ids), 100):
