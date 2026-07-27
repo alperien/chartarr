@@ -10,10 +10,14 @@ albums to Lidarr through its API.
 
 ## Installation
 
-    pipx install chartarr
+    pipx install git+https://github.com/alperien/chartarr
+
+or, with [uv](https://docs.astral.sh/uv/):
+
+    uv tool install git+https://github.com/alperien/chartarr
 
 Requires Python 3.10 or later. On Windows, the windows-curses dependency
-is installed automatically.
+is installed automatically. Not on PyPI — install from here.
 
 ## Usage
 
