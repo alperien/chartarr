@@ -331,3 +331,38 @@ def test_outage_midway_reports_what_it_kept(tmp_path, monkeypatch, capsys):
         cli.stage_match(rows, "artist", "title", state)
     assert "1 row matched so far is saved" in capsys.readouterr().err
     assert list(state.results) == ["k1"]
+
+
+def test_review_choice_beats_the_auto_match_and_skips_are_dropped(tmp_path):
+    # the reviewed pick has to reach lidarr, not the candidate the matcher
+    # led with — that's the whole point of the review screen
+    p = _csv(tmp_path, "title,artist\nZiggy Stardust,David Bowie\n"
+                       "Kid A,Radiohead\nDummy,Portishead\n")
+    rows, _, _ = load_csv(p)
+    k = [r["_key"] for r in rows]
+    state = State(tmp_path / "s.jsonl")
+    state.add_result(k[0], {"status": "review", "release_group_mbid": "the-live-one",
+                            "artist_mbid": "a-bowie"})
+    state.add_result(k[1], {"status": "matched", "release_group_mbid": "rg-kida",
+                            "artist_mbid": "a-rh"})
+    state.add_result(k[2], {"status": "review", "release_group_mbid": "rg-dummy",
+                            "artist_mbid": "a-p"})
+    state.add_decision(k[0], {"action": "accept", "mbid": "the-studio-one",
+                              "artist_mbid": "a-bowie"})
+    state.add_decision(k[2], {"action": "skip"})
+    items = cli.import_set(rows, state)
+    assert {i["rgid"] for i in items} == {"the-studio-one", "rg-kida"}
+    # artist mbid rides along, or same-artist albums unmonitor each other
+    assert all(i["artist_mbid"] for i in items)
+
+
+def test_rematch_clears_only_the_rows_nothing_was_found_for(tmp_path):
+    state = State(tmp_path / "s.jsonl")
+    state.add_result("miss", {"status": "not_found"})
+    state.add_result("hit", {"status": "matched", "release_group_mbid": "rg-1"})
+    state.add_result("ask", {"status": "review", "release_group_mbid": "rg-2"})
+    state.add_decision("ask", {"action": "accept", "mbid": "rg-2"})
+    state.forget([k for k, r in state.results.items() if r["status"] == "not_found"])
+    reloaded = State(tmp_path / "s.jsonl")
+    assert set(reloaded.results) == {"hit", "ask"}
+    assert reloaded.decisions["ask"]["mbid"] == "rg-2"  # the review survives
