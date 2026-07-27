@@ -356,6 +356,87 @@ def test_review_choice_beats_the_auto_match_and_skips_are_dropped(tmp_path):
     assert all(i["artist_mbid"] for i in items)
 
 
+class _FakeApi:
+    """lidarr stand-in that records what stage_push asks it to do."""
+
+    def __init__(self, outcomes):
+        self.outcomes = outcomes           # rgid -> (outcome, album_id)
+        self.searched = []
+
+    def status(self):
+        return {"version": "3.1.0"}
+
+    def quality_profiles(self):
+        return [{"id": 1, "name": "Standard"}]
+
+    def metadata_profiles(self):
+        return [{"id": 2, "name": "Standard"}]
+
+    def root_folders(self):
+        return [{"id": 3, "path": "/music"}]
+
+    def add_album(self, rgid, qp, mp, rf, search=False, also_monitor=None):
+        return self.outcomes[rgid]
+
+    def search_albums(self, album_ids):
+        self.searched.extend(album_ids)
+
+
+def _push(monkeypatch, tmp_path, outcomes, **flags):
+    """run stage_push over one row per outcome; returns the fake api."""
+    api = _FakeApi(outcomes)
+    monkeypatch.setattr(cli.lidarr, "Lidarr", lambda url, key: api)
+    monkeypatch.setattr(cli, "_screen_ok", lambda: False)
+    items = [{"key": f"k{i}", "row": {"artist": f"a{i}", "title": f"t{i}"},
+              "rgid": rgid, "artist_mbid": f"am{i}"}
+             for i, rgid in enumerate(outcomes)]
+    args = cli.build_parser().parse_args(["chart.csv", *flags.pop("argv", [])])
+    cli.stage_push(items, "artist", "title", args,
+                   {"lidarr_url": "http://l:8686", "api_key": "k"})
+    return api
+
+
+def test_search_does_not_ask_twice_for_a_freshly_added_album(
+        monkeypatch, tmp_path, capsys):
+    # add_album already sets addOptions.searchForNewAlbum on the POST, so
+    # naming the same album in the AlbumSearch command searched it twice
+    api = _push(monkeypatch, tmp_path, {"rg-new": ("added", 42)},
+                argv=["--search"])
+    assert api.searched == []
+
+
+def test_search_still_asks_for_rows_only_flipped_to_monitored(
+        monkeypatch, tmp_path, capsys):
+    # searchForNewAlbum never fires for these: the album already existed,
+    # so the explicit command is the only thing that searches it
+    api = _push(monkeypatch, tmp_path, {"rg-old": ("monitored", 7)},
+                argv=["--search"])
+    assert api.searched == [7]
+
+
+def test_search_skips_albums_that_were_already_monitored(
+        monkeypatch, tmp_path, capsys):
+    api = _push(monkeypatch, tmp_path, {"rg-there": ("skipped", 9)},
+                argv=["--search"])
+    assert api.searched == []
+
+
+def test_a_mixed_push_searches_only_the_flipped_rows(
+        monkeypatch, tmp_path, capsys):
+    api = _push(monkeypatch, tmp_path,
+                {"rg-new": ("added", 1), "rg-old": ("monitored", 2),
+                 "rg-there": ("skipped", 3)},
+                argv=["--search"])
+    assert api.searched == [2]
+
+
+def test_without_the_search_flag_nothing_is_searched(
+        monkeypatch, tmp_path, capsys):
+    api = _push(monkeypatch, tmp_path,
+                {"rg-new": ("added", 1), "rg-old": ("monitored", 2)})
+    assert api.searched == []
+
+
 def test_rematch_clears_only_the_rows_nothing_was_found_for(tmp_path):
     state = State(tmp_path / "s.jsonl")
     state.add_result("miss", {"status": "not_found"})

@@ -9,6 +9,28 @@ alone.
 
 ## [Unreleased]
 
+### Fixed
+
+- **The review screen pinned a CPU core while it waited for you.** The
+  progress screens poll for a keypress so they can notice `q` mid-run, and
+  that non-blocking mode stayed on the window afterwards, `curses.wrapper`
+  does not reset it between screens. The review list, which expects to wait
+  for input, instead read "no key pressed" and redrew immediately, about
+  17,000 times a second for as long as the screen was open. It also
+  flickered. Every screen now starts in blocking mode.
+- **`--search` asked Lidarr to search newly added albums twice.** An added
+  album already carries `searchForNewAlbum`, and it was then named in the
+  follow-up `AlbumSearch` command as well. Only albums that were flipped
+  from unmonitored to monitored need that second request, since the flag
+  never fires for them.
+
+### Added
+
+- **u undoes a decision in the review screen.** A mistyped `s` used to be
+  permanent for that run, the state file has always understood a cleared
+  decision, but nothing could write one.
+- Tests for the review screen's keys, which had none.
+
 ## [0.1.0] - 2026-07-27
 
 First release.

@@ -35,9 +35,9 @@ This runs three stages:
    than writing those rows off as unmatched.
 2. **Review.** Uncertain matches are shown in an interactive list.
    Arrow keys move, Enter accepts the suggested match, 1-3 select an
-   alternative, s skips a row, a accepts all suggestions, q finishes.
-   Decisions are saved immediately and can be changed by selecting a
-   row again.
+   alternative, s skips a row, u undoes a decision, a accepts all
+   suggestions, q finishes. Decisions are saved immediately and can be
+   changed by selecting a row again.
 3. **Push.** Matched albums are added to Lidarr as monitored albums,
    with the same fullscreen progress view. Adding an album means adding
    its artist, and Lidarr fills in their whole discography behind the

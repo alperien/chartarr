@@ -10,8 +10,9 @@ def run(items, artist_col, title_col, on_decision):
     """show (row, result) pairs in a list; decisions go to on_decision.
 
     arrow keys move, enter accepts the suggested match, 1-3 pick another
-    candidate, s skips, a accepts every remaining suggestion, q finishes.
-    picking again on a decided row replaces the earlier decision.
+    candidate, s skips, u undoes a decision, a accepts every remaining
+    suggestion, q finishes. picking again on a decided row replaces the
+    earlier decision.
     """
     if not items:
         return
@@ -37,7 +38,10 @@ def _loop(scr, items, artist_col, title_col, on_decision):
 
     def decide(i, decision):
         key = items[i][1]["key"]
-        decisions[key] = decision
+        if decision.get("action") == "clear":
+            decisions.pop(key, None)
+        else:
+            decisions[key] = decision
         on_decision(key, decision)
 
     def accept_best(i):
@@ -93,9 +97,11 @@ def _loop(scr, items, artist_col, title_col, on_decision):
             _put(scr, dy + ci - 1, 3, _fit(line, w - 6 - len(tag)) + tag,
                  accent if chosen else (0 if d else dim if ci > 1 else 0))
 
+        # two spaces between hints, not three: with u undo added, the wider
+        # spacing ran to 79 cells and lost "q done" off an 80-column terminal
         _put(scr, h - 1, 1,
-             _fit("arrows move   enter accept   1-3 pick   s skip   "
-                  "a accept all   q done", w - 2), dim)
+             _fit("arrows move  enter accept  1-3 pick  s skip  u undo  "
+                  "a accept all  q done", w - 2), dim)
         scr.refresh()
 
         k = scr.getch()
@@ -116,6 +122,11 @@ def _loop(scr, items, artist_col, title_col, on_decision):
         elif k == ord("s"):
             decide(pos, {"action": "skip"})
             pos = min(pos + 1, len(items) - 1)
+        elif k == ord("u"):
+            # undecide: the state log already understands a clear record,
+            # but nothing could emit one, so a mistyped skip was permanent
+            if items[pos][1]["key"] in decisions:
+                decide(pos, {"action": "clear"})
         elif k == ord("a"):
             for i, (_, res_i) in enumerate(items):
                 if res_i["key"] not in decisions and not accept_best(i):
