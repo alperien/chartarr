@@ -45,8 +45,17 @@ def _screen_ok() -> bool:
     return sys.stdin.isatty() and sys.stdout.isatty() and screen.available()
 
 
+def _accent_code() -> str:
+    # 256-colour rose where it's available, magenta everywhere else; matches
+    # what the curses screens pick so piped output and the tui agree
+    term = os.environ.get("TERM", "")
+    if "256color" in term or os.environ.get("COLORTERM") in ("truecolor", "24bit"):
+        return f"38;5;{screen.ROSE_256}"
+    return "35"
+
+
 def accent(s) -> str:
-    return f"\033[36m{s}\033[0m" if _color() else str(s)
+    return f"\033[{_accent_code()}m{s}\033[0m" if _color() else str(s)
 
 
 def dim(s) -> str:
