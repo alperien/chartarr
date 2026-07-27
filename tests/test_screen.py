@@ -217,22 +217,22 @@ def test_screen_ok_on_a_real_pty_follows_term():
 
 # accent colour
 
-def test_rose_is_the_pastel_on_a_256_colour_dark_terminal(monkeypatch):
+def test_cherry_brightens_on_a_256_colour_dark_terminal(monkeypatch):
     monkeypatch.setattr(screen.curses, "COLORS", 256, raising=False)
     monkeypatch.delenv("COLORFGBG", raising=False)
-    assert screen._rose() == screen.ROSE_PASTEL_256
+    assert screen._cherry() == screen.CHERRY_BRIGHT_256
 
 
-def test_rose_deepens_on_a_light_background(monkeypatch):
-    # the pastel washes out on white; 168 clears the contrast floor either way
+def test_cherry_settles_on_a_light_background(monkeypatch):
+    # the bright shade is thinner on white; 161 reads better there
     monkeypatch.setattr(screen.curses, "COLORS", 256, raising=False)
     monkeypatch.setenv("COLORFGBG", "0;15")
-    assert screen._rose() == screen.ROSE_256
+    assert screen._cherry() == screen.CHERRY_256
 
 
-def test_rose_falls_back_to_magenta_without_256_colours(monkeypatch):
+def test_cherry_falls_back_to_red_without_256_colours(monkeypatch):
     monkeypatch.setattr(screen.curses, "COLORS", 8, raising=False)
-    assert screen._rose() == screen.curses.COLOR_MAGENTA
+    assert screen._cherry() == screen.curses.COLOR_RED
 
 
 def test_dark_background_reads_colorfgbg(monkeypatch):

@@ -92,21 +92,20 @@ def _put(scr, y, x, s, attr=0):
         pass
 
 
-# rose, picked to stay legible on a light terminal as well as a dark one.
-# 218 is the pastel proper (#ffafd7) and looks lovely on dark, but it's pale
-# enough to wash out on a white background — so it's only used where the
-# terminal reports 256 colours AND is dark, with 168 (#d75f87, a deeper rose
-# that clears the contrast floor either way) as the everyday choice. eight
-# colour terminals get magenta, the nearest thing to rose they have.
-ROSE_256 = 168
-ROSE_PASTEL_256 = 218
+# cherry. 161 (#d7005f) is the closest 256-colour approximation of the fruit
+# (~#d2042d, red with a blue lean rather than an orange one) and is readable
+# on white as well as black, so it's the everyday choice. dark terminals get
+# 197 (#ff005f), the same hue with the brightness turned up, which reads
+# better against black. eight colour terminals get red.
+CHERRY_256 = 161
+CHERRY_BRIGHT_256 = 197
 
 
-def _rose() -> int:
+def _cherry() -> int:
     """the accent colour number this terminal can actually show."""
     if curses.COLORS >= 256:
-        return ROSE_PASTEL_256 if _dark_background() else ROSE_256
-    return curses.COLOR_MAGENTA
+        return CHERRY_BRIGHT_256 if _dark_background() else CHERRY_256
+    return curses.COLOR_RED
 
 
 def _dark_background() -> bool:
@@ -114,8 +113,7 @@ def _dark_background() -> bool:
 
     COLORFGBG is what terminals that care about this set (rxvt, konsole,
     some terminfo-aware setups); "15;0" means light text on dark. absent
-    it, assume dark, which is the common case and the safer guess: the
-    pastel only appears when we're reasonably sure it'll be readable.
+    it, assume dark: the common case, and both shades are readable there.
     """
     fgbg = os.environ.get("COLORFGBG", "")
     if ";" in fgbg:
@@ -131,11 +129,11 @@ def accent_pair() -> int:
         return 0
     curses.use_default_colors()
     try:
-        curses.init_pair(1, _rose(), -1)
+        curses.init_pair(1, _cherry(), -1)
     except (curses.error, ValueError):
-        # some terminals lie about COLORS; magenta is always safe
+        # some terminals lie about COLORS; plain red is always safe
         try:
-            curses.init_pair(1, curses.COLOR_MAGENTA, -1)
+            curses.init_pair(1, curses.COLOR_RED, -1)
         except curses.error:
             return 0
     return curses.color_pair(1)

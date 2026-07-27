@@ -368,13 +368,13 @@ def test_rematch_clears_only_the_rows_nothing_was_found_for(tmp_path):
     assert reloaded.decisions["ask"]["mbid"] == "rg-2"  # the review survives
 
 
-def test_plain_output_accent_matches_the_curses_rose(monkeypatch):
+def test_plain_output_accent_matches_the_curses_cherry(monkeypatch):
     # piped output and the tui should agree on the colour
     monkeypatch.setenv("TERM", "xterm-256color")
     monkeypatch.delenv("COLORTERM", raising=False)
-    assert cli._accent_code() == f"38;5;{cli.screen.ROSE_256}"
+    assert cli._accent_code() == f"38;5;{cli.screen.CHERRY_256}"
     monkeypatch.setenv("TERM", "xterm")
-    assert cli._accent_code() == "35"
+    assert cli._accent_code() == "31"
 
 
 def test_no_color_env_still_wins(monkeypatch):
