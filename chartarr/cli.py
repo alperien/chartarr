@@ -434,11 +434,10 @@ def stage_push(items, artist_col, title_col, args, cfg) -> None:
             try:
                 outcome, album_id = api.add_album(
                     it["rgid"], qp["id"], mp["id"], rf["path"],
-                    search=args.search, also_monitor=siblings)
-                # only the flipped-to-monitored rows need asking for below:
-                # a fresh add already carries searchForNewAlbum, and listing
-                # it here too would have lidarr search the same album twice
-                if album_id and outcome == "monitored":
+                    also_monitor=siblings)
+                # everything this run put in or turned on gets searched
+                # below; adding an album never starts a search by itself
+                if album_id and outcome in ("added", "monitored"):
                     touched.append(album_id)
                 yield name, outcome, None
             except lidarr.LidarrError as e:
@@ -462,13 +461,18 @@ def stage_push(items, artist_col, title_col, args, cfg) -> None:
         line += f" · failed {accent(counts['failed'])}"
     print(line)
     if args.search and touched:
-        # lidarr's per-album searchForNewAlbum flag doesn't fire for albums
-        # that were only flipped to monitored, so ask for the search here
+        # the only thing that actually starts a download: one AlbumSearch
+        # for everything this run added or turned on
         try:
             api.search_albums(touched)
             print(dim(f"asked lidarr to search for {_n(len(touched), 'album')}"))
         except lidarr.LidarrError as e:
             print(dim(f"search request failed: {e}"))
+    elif touched and not args.dry_run:
+        # without --search the albums sit there monitored and idle, which
+        # looks like a finished job that downloaded nothing
+        print(dim(f"{_n(len(touched), 'album')} monitored but not searched — "
+                  f"rerun with --search, or hit Search in lidarr"))
     for f_ in failures[:8]:
         print(dim(f"  {f_}"))
     if len(failures) > 8:

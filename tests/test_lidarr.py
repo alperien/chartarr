@@ -105,13 +105,18 @@ def test_also_monitor_names_every_sibling_once():
 
 
 @responses.activate
-def test_search_flag_stays_on_the_album_not_the_artist():
-    # --search must ask for this album only, never the whole discography
+def test_adding_never_asks_lidarr_to_search():
+    # searchForNewAlbum is read by SearchForRecentlyAdded, which
+    # ArtistScannedHandler only reaches when the artist has no AddOptions
+    # — never the artist this add just created — and the handler clears
+    # AddOptions on the way out, so the flag is stored and dropped
+    # (Lidarr#5012). searching is the caller's job, via AlbumSearch.
     stage_lookup()
     responses.add(responses.POST, API + "/album", json={"id": 42}, status=201)
-    add(search=True)
+    add()
     body = posted_album()
-    assert body["addOptions"] == {"searchForNewAlbum": True}
+    assert body["addOptions"] == {"searchForNewAlbum": False}
+    # and never the artist-wide search, which would grab the discography
     assert body["artist"]["addOptions"]["searchForMissingAlbums"] is False
 
 

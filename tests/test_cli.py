@@ -375,7 +375,7 @@ class _FakeApi:
     def root_folders(self):
         return [{"id": 3, "path": "/music"}]
 
-    def add_album(self, rgid, qp, mp, rf, search=False, also_monitor=None):
+    def add_album(self, rgid, qp, mp, rf, also_monitor=None):
         return self.outcomes[rgid]
 
     def search_albums(self, album_ids):
@@ -396,13 +396,15 @@ def _push(monkeypatch, tmp_path, outcomes, **flags):
     return api
 
 
-def test_search_does_not_ask_twice_for_a_freshly_added_album(
-        monkeypatch, tmp_path, capsys):
-    # add_album already sets addOptions.searchForNewAlbum on the POST, so
-    # naming the same album in the AlbumSearch command searched it twice
+def test_search_asks_for_a_freshly_added_album(monkeypatch, tmp_path, capsys):
+    # adding does not search: lidarr stores addOptions.searchForNewAlbum
+    # and drops it unread for an artist it created in the same request
+    # (Lidarr#5012), so the explicit command is the only thing that starts
+    # a download. leaving added albums out meant the first album of every
+    # new artist silently never downloaded.
     api = _push(monkeypatch, tmp_path, {"rg-new": ("added", 42)},
                 argv=["--search"])
-    assert api.searched == []
+    assert api.searched == [42]
 
 
 def test_search_still_asks_for_rows_only_flipped_to_monitored(
@@ -421,13 +423,43 @@ def test_search_skips_albums_that_were_already_monitored(
     assert api.searched == []
 
 
-def test_a_mixed_push_searches_only_the_flipped_rows(
+def test_a_mixed_push_searches_everything_it_added_or_turned_on(
         monkeypatch, tmp_path, capsys):
+    # the realistic shape of a chart push: the first album of an artist
+    # lands as "added", their others come back 400 "already added" from
+    # the discography lidarr pre-created and get flipped to "monitored".
+    # both need searching; only rows already monitored are left alone.
     api = _push(monkeypatch, tmp_path,
                 {"rg-new": ("added", 1), "rg-old": ("monitored", 2),
                  "rg-there": ("skipped", 3)},
                 argv=["--search"])
-    assert api.searched == [2]
+    assert api.searched == [1, 2]
+
+
+def test_every_pushed_album_is_searched_exactly_once(
+        monkeypatch, tmp_path, capsys):
+    api = _push(monkeypatch, tmp_path,
+                {f"rg-{i}": ("added" if i % 2 else "monitored", i)
+                 for i in range(1, 7)},
+                argv=["--search"])
+    assert sorted(api.searched) == [1, 2, 3, 4, 5, 6]
+    assert len(api.searched) == len(set(api.searched))
+
+
+def test_without_search_the_summary_says_nothing_was_searched(
+        monkeypatch, tmp_path, capsys):
+    # monitored-but-idle looks like a finished job that downloaded nothing
+    _push(monkeypatch, tmp_path,
+          {"rg-new": ("added", 1), "rg-old": ("monitored", 2)})
+    out = capsys.readouterr().out
+    assert "2 albums monitored but not searched" in out
+    assert "--search" in out
+
+
+def test_a_push_with_nothing_to_search_says_nothing(
+        monkeypatch, tmp_path, capsys):
+    _push(monkeypatch, tmp_path, {"rg-there": ("skipped", 9)})
+    assert "not searched" not in capsys.readouterr().out
 
 
 def test_without_the_search_flag_nothing_is_searched(
