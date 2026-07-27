@@ -11,6 +11,12 @@ alone.
 
 ### Fixed
 
+- **One failed search request no longer strands the albums behind it.**
+  Searches go out in batches of a hundred, and a batch that failed raised
+  immediately, so on a 250-album chart a single timed-out request left the
+  last fifty albums unsearched with nothing said about it. Every batch is
+  now attempted, and the summary reports how many albums missed out and
+  why.
 - **`--search` did not start downloads for the first album of each new
   artist.** Adding an album was assumed to search it, via Lidarr's
   `addOptions.searchForNewAlbum`. That flag is read by

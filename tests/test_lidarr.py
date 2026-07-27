@@ -243,11 +243,38 @@ def test_find_album_raises_on_5xx():
 def test_search_albums_chunks_by_100_and_loses_nothing():
     responses.add(responses.POST, API + "/command", json={"id": 1}, status=201)
     ids = list(range(250))
-    api().search_albums(ids)
+    assert api().search_albums(ids) == (250, [])
     bodies = [json.loads(c.request.body) for c in responses.calls]
     assert [b["name"] for b in bodies] == ["AlbumSearch"] * 3
     assert [len(b["albumIds"]) for b in bodies] == [100, 100, 50]
     assert [i for b in bodies for i in b["albumIds"]] == ids
+
+
+@responses.activate
+def test_one_failed_batch_does_not_strand_the_rest():
+    # a 250-album chart is three requests; the middle one failing used to
+    # raise and leave the last fifty albums unsearched and unmentioned
+    responses.add(responses.POST, API + "/command", json={"id": 1}, status=201)
+    responses.add(responses.POST, API + "/command", body="boom", status=500)
+    responses.add(responses.POST, API + "/command", json={"id": 3}, status=201)
+    queued, errors = api().search_albums(list(range(250)))
+    assert queued == 150          # the first and third batches
+    assert len(errors) == 1
+    assert len(responses.calls) == 3  # the third was still attempted
+
+
+@responses.activate
+def test_every_batch_failing_is_reported_not_raised():
+    responses.add(responses.POST, API + "/command", body="boom", status=500)
+    queued, errors = api().search_albums([1, 2, 3])
+    assert queued == 0
+    assert len(errors) == 1
+
+
+def test_search_albums_with_nothing_to_do_makes_no_requests():
+    # add_album returns None for the id when lidarr doesn't send one back
+    assert api().search_albums([]) == (0, [])
+    assert api().search_albums([None, None]) == (0, [])
 
 
 @responses.activate
