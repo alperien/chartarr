@@ -1,7 +1,9 @@
 """curses screens: a shared progress view and helpers for the review list."""
 from __future__ import annotations
 
+import sys
 import time
+import unicodedata
 from collections import deque
 
 try:
@@ -11,21 +13,75 @@ except ImportError:  # native windows python without windows-curses
 
 
 def available() -> bool:
-    return curses is not None
+    """curses is importable and can actually drive this terminal type.
+
+    importability alone isn't enough: with TERM unset, or set to something
+    terminfo has never heard of (ssh from an exotic emulator, TERM=unknown),
+    curses.wrapper dies at setupterm. checking here lets every caller fall
+    back to the plain-line output instead of crashing.
+
+    note: cpython caches setupterm's first success process-wide, so this
+    answers for the TERM the process started with — which is the one that
+    matters. tests that flip TERM must probe in a subprocess.
+    """
+    if curses is None:
+        return False
+    try:
+        fd = sys.stdout.fileno()
+    except (OSError, ValueError, AttributeError):
+        fd = 2  # stdout is captured or synthetic; any fd does for terminfo
+    try:
+        curses.setupterm(fd=fd)
+    except curses.error:
+        return False
+    return True
 
 
 def _run(func, *args):
     import locale
 
-    locale.setlocale(locale.LC_ALL, "")
+    # a utf-8 locale makes ncurses draw wide characters correctly, but an
+    # LC_ALL this box doesn't know (classic ssh-forwarded locale) must not
+    # kill the screen — degrade toward the C locale instead
+    try:
+        locale.setlocale(locale.LC_ALL, "")
+    except locale.Error:
+        try:
+            locale.setlocale(locale.LC_ALL, "C.UTF-8")
+        except locale.Error:
+            pass
     return curses.wrapper(func, *args)
 
 
+def _cell(ch: str) -> int:
+    if unicodedata.category(ch) in ("Mn", "Me", "Cf"):
+        return 0  # combining marks and format controls draw nothing
+    return 2 if unicodedata.east_asian_width(ch) in ("W", "F") else 1
+
+
+def cells(s: str) -> int:
+    """display cells s occupies — the terminal lays out by cell, not code
+    point, and cjk take two, so len() undercounts exactly on the
+    dual-script charts this tool is for."""
+    return sum(_cell(ch) for ch in s)
+
+
 def _fit(s, width):
+    """truncate s to at most width display cells, ellipsis included."""
     s = str(s).replace("\n", " / ")
     if width < 2:
         return ""
-    return s if len(s) <= width else s[: width - 1] + "…"
+    if cells(s) <= width:
+        return s
+    out: list = []
+    used = 0
+    for ch in s:
+        w = _cell(ch)
+        if used + w > width - 1:  # keep one cell for the ellipsis
+            break
+        out.append(ch)
+        used += w
+    return "".join(out) + "…"
 
 
 def _put(scr, y, x, s, attr=0):

@@ -1,22 +1,29 @@
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"
 
 [project]
 name = "chartarr"
-version = "0.1.0"
+dynamic = ["version"]
 description = "match a csv of albums to musicbrainz and add them to lidarr"
 readme = "README.md"
-license = { text = "MIT" }
-requires-python = ">=3.9"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.10"
 authors = [{ name = "chartarr contributors" }]
 keywords = ["lidarr", "musicbrainz", "rateyourmusic", "music", "import", "csv"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Environment :: Console",
+    "Environment :: Console :: Curses",
     "Intended Audience :: End Users/Desktop",
-    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Multimedia :: Sound/Audio",
 ]
 dependencies = [
@@ -24,15 +31,42 @@ dependencies = [
     'windows-curses>=2.3; platform_system == "Windows"',
 ]
 
-[project.optional-dependencies]
-dev = ["pytest>=7"]
+[dependency-groups]
+dev = ["pytest>=8", "responses>=0.25", "ruff>=0.16"]
 
 [project.urls]
 Homepage = "https://github.com/alperien/chartarr"
+Source = "https://github.com/alperien/chartarr"
+Changelog = "https://github.com/alperien/chartarr/blob/main/CHANGELOG.md"
 Issues = "https://github.com/alperien/chartarr/issues"
 
 [project.scripts]
 chartarr = "chartarr.cli:main"
 
+[tool.hatch.version]
+path = "chartarr/__init__.py"
+
 [tool.hatch.build.targets.wheel]
 packages = ["chartarr"]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["F", "E", "W", "I", "UP", "B", "C4", "SIM", "RUF"]
+# contextlib.suppress reads well but costs a context manager per call, and
+# these sit in the terminal redraw path
+ignore = ["SIM105"]
+
+[tool.ruff.lint.per-file-ignores]
+# the sample chart and demo data are full of the confusable characters this
+# tool exists to handle: ★, ♯, ∞, 男達の別れ
+"chartarr/cli.py" = ["RUF001"]
+"chartarr/demo.py" = ["RUF001"]
+# tests import the package after adjusting sys.path, and unpack tuples they
+# only partly use
+"tests/*" = ["E402", "RUF059"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
