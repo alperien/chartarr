@@ -51,7 +51,21 @@ def _run(func, *args):
             locale.setlocale(locale.LC_ALL, "C.UTF-8")
         except locale.Error:
             pass
-    return curses.wrapper(func, *args)
+
+    def entry(scr, *inner):
+        # every session starts blocking. cpython keeps nodelay on the window
+        # itself and curses.wrapper does not reset it between sessions, so
+        # the nodelay(True) _progress needs would carry into the review loop
+        # that follows it — whose getch() would then return -1 forever and
+        # redraw at ~17k frames a second on a pinned core. a screen that
+        # wants non-blocking input asks for it, as _progress does.
+        try:
+            scr.nodelay(False)
+        except (AttributeError, curses.error):
+            pass  # a stand-in window in the tests, or a terminal that refused
+        return func(scr, *inner)
+
+    return curses.wrapper(entry, *args)
 
 
 def _cell(ch: str) -> int:
