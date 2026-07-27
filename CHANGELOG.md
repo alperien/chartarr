@@ -11,6 +11,22 @@ alone.
 
 ### Fixed
 
+- **`--search` did not start downloads for the first album of each new
+  artist.** Adding an album was assumed to search it, via Lidarr's
+  `addOptions.searchForNewAlbum`. That flag is read by
+  `SearchForRecentlyAdded`, which Lidarr's `ArtistScannedHandler` only
+  reaches for an artist that has no pending add options — never the
+  artist the add just created — and the handler clears those options on
+  its way out, so the flag is stored and dropped
+  ([Lidarr#5012](https://github.com/Lidarr/Lidarr/issues/5012)). The
+  second and later albums by an artist were unaffected: Lidarr
+  pre-creates the discography, so those come back "already added" and
+  take the flip-to-monitored path, which chartarr searched explicitly.
+  Every album this run adds or turns on is now named in one `AlbumSearch`
+  command, which searches unconditionally. Without `--search`, the
+  summary says how many albums are monitored but idle, instead of looking
+  like a finished job that downloaded nothing.
+
 - **A skip in the review screen is now honoured on a row that also
   matched.** The push took the automatic match whenever there was one and
   only consulted your decision otherwise, so a row that was skipped and
