@@ -1,6 +1,8 @@
 """review screen: a list of uncertain matches, enter accepts the best guess."""
 from __future__ import annotations
 
+import os
+
 from .screen import _fit, _put, _run, available, curses
 
 
@@ -11,8 +13,15 @@ def run(items, artist_col, title_col, on_decision):
     candidate, s skips, a accepts every remaining suggestion, q finishes.
     picking again on a decided row replaces the earlier decision.
     """
-    if not available():
+    if not items:
+        return
+    if curses is None:
         print("the review screen needs curses (on windows: pip install windows-curses)")
+        return
+    if not available():
+        print(f"this terminal can't draw the review screen "
+              f"(TERM={os.environ.get('TERM', '')!r}) — rerun in a working "
+              f"terminal, or use --yes to push just the confident matches")
         return
     _run(_loop, items, artist_col, title_col, on_decision)
 

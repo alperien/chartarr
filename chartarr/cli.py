@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import argparse
 import csv
+import getpass
+import hashlib
 import json
 import os
 import re
@@ -56,7 +58,10 @@ def status(line: str) -> None:
     if not sys.stdout.isatty():
         return
     width = shutil.get_terminal_size().columns - 1
-    sys.stdout.write("\r" + line[:width].ljust(width))
+    # truncate and pad by display cells, not code points — a cjk label is
+    # wider than len() says, and overflowing the row garbles the redraw
+    line = screen._fit(line, width)
+    sys.stdout.write("\r" + line + " " * max(0, width - screen.cells(line)))
     sys.stdout.flush()
 
 
@@ -83,9 +88,13 @@ def load_config() -> dict:
     p = config_path()
     if p.exists():
         try:
-            cfg = json.loads(p.read_text())
+            data = json.loads(p.read_text())
         except json.JSONDecodeError:
-            pass
+            data = None
+        # a config that parses but isn't an object is as unusable as one
+        # that doesn't parse; either way --setup rewrites it
+        if isinstance(data, dict):
+            cfg = data
     url = os.environ.get("CHARTARR_LIDARR_URL") or os.environ.get("LIDARR_URL")
     key = os.environ.get("CHARTARR_API_KEY") or os.environ.get("LIDARR_API_KEY")
     if url:
@@ -95,24 +104,41 @@ def load_config() -> dict:
     return cfg
 
 
+def _ask(prompt: str, secret: bool = False) -> str:
+    # getpass keeps the api key out of the scrollback and out of recordings
+    try:
+        return (getpass.getpass(prompt) if secret else input(prompt)).strip()
+    except (EOFError, KeyboardInterrupt):
+        print(file=sys.stderr)  # step off the interrupted prompt line
+        fail("setup cancelled — nothing was saved")
+        return ""  # unreachable; fail() exits
+
+
 def setup_wizard(existing: dict) -> dict:
+    if not sys.stdin.isatty():
+        fail("lidarr isn't set up and there's no terminal to ask on — set "
+             "LIDARR_URL and LIDARR_API_KEY, or run chartarr --setup in a terminal")
     default = existing.get("lidarr_url", "http://localhost:8686")
-    url = input(f"lidarr url [{default}]: ").strip() or default
-    key = input("api key (lidarr: settings > general > security): ").strip() \
+    url = _ask(f"lidarr url [{default}]: ") or default
+    key = _ask("api key (lidarr: settings > general > security): ", secret=True) \
         or existing.get("api_key", "")
     try:
         version = lidarr.Lidarr(url, key).status().get("version", "")
         print(dim(f"connected to lidarr {version}"))
     except lidarr.LidarrError as e:
         print(f"chartarr: {e}", file=sys.stderr)
-        if input("save anyway? [y/N] ").strip().lower() != "y":
+        if _ask("save anyway? [y/N] ").lower() != "y":
             sys.exit(1)
     cfg = {"lidarr_url": url, "api_key": key}
     p = config_path()
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(json.dumps(cfg, indent=2) + "\n")
+    # the file holds an api key: owner-only from the first byte, because
+    # create-then-chmod leaves a window where it's readable at umask perms
+    with open(p, "w", encoding="utf-8",
+              opener=lambda path, flags: os.open(path, flags, 0o600)) as f:
+        f.write(json.dumps(cfg, indent=2) + "\n")
     try:
-        p.chmod(0o600)
+        p.chmod(0o600)  # tighten configs written before the 0600 open existed
     except OSError:
         pass
     return cfg
@@ -125,27 +151,48 @@ class State:
         self.path = path
         self.results: dict[str, dict] = {}
         self.decisions: dict[str, dict] = {}
+        self._needs_newline = False
         if path.exists():
-            with path.open(encoding="utf-8") as f:
-                for line in f:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    try:
-                        rec = json.loads(line)
-                    except json.JSONDecodeError:
-                        continue
-                    if rec.get("type") == "decision":
-                        d = rec["decision"]
-                        if d.get("action") == "clear":
-                            self.decisions.pop(rec["key"], None)
-                        else:
-                            self.decisions[rec["key"]] = d
+            raw = path.read_bytes()
+            self._needs_newline = bool(raw) and not raw.endswith(b"\n")
+            for line in raw.decode("utf-8", "replace").splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    rec = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if not isinstance(rec, dict) or "key" not in rec:
+                    continue
+                kind = rec.get("type")
+                if kind == "decision":
+                    d = rec.get("decision") or {}
+                    if d.get("action") == "clear":
+                        self.decisions.pop(rec["key"], None)
                     else:
-                        self.results[rec["key"]] = rec
+                        self.decisions[rec["key"]] = d
+                elif kind == "forget":
+                    self.results.pop(rec["key"], None)
+                    self.decisions.pop(rec["key"], None)
+                else:
+                    self.results[rec["key"]] = rec
+
+    def forget(self, keys) -> None:
+        """drop match results so the rows are looked up again."""
+        for key in keys:
+            self.results.pop(key, None)
+            self.decisions.pop(key, None)
+            self._append({"type": "forget", "key": key})
 
     def _append(self, rec: dict) -> None:
         with self.path.open("a", encoding="utf-8") as f:
+            # a run killed mid-write leaves a line with no newline; starting
+            # a fresh one keeps the next record from fusing onto that stub
+            # (the stub itself is dropped as unparseable on the next read)
+            if self._needs_newline:
+                f.write("\n")
+                self._needs_newline = False
             f.write(json.dumps(rec, ensure_ascii=False) + "\n")
 
     def add_result(self, key: str, result: dict) -> None:
@@ -163,11 +210,37 @@ class State:
 
 # csv
 
+def _row_key(artist: str, title: str) -> str:
+    text = f"{matcher.norm(artist)}␟{matcher.norm(title)}"
+    return hashlib.sha1(text.encode("utf-8")).hexdigest()[:16]
+
+
 def load_csv(path: Path):
-    with path.open(newline="", encoding="utf-8-sig") as f:
-        reader = csv.DictReader(f)
-        rows = list(reader)
-        cols = reader.fieldnames or []
+    try:
+        head = path.read_bytes()[:4096]
+    except OSError as e:
+        fail(f"can't read {path}: {e.strerror or e}")
+    # excel's "unicode text" export is utf-16: ascii bytes padded with NULs.
+    # python 3.12 stopped rejecting those in the csv reader, so the file
+    # parses into gibberish column names instead of failing; say what it is.
+    if b"\x00" in head:
+        fail(f'{path} looks like utf-16 (excel\'s "unicode text" export) — '
+             're-save it as "csv utf-8" and rerun')
+    try:
+        with path.open(newline="", encoding="utf-8-sig") as f:
+            reader = csv.DictReader(f)
+            rows = list(reader)
+            cols = reader.fieldnames or []
+    except UnicodeDecodeError:
+        fail(f"{path} isn't utf-8 — re-save it as utf-8 "
+             '(in excel: "csv utf-8") and rerun')
+    except csv.Error as e:
+        hint = (' — excel\'s "unicode text" export is utf-16, which does '
+                'this; re-save as "csv utf-8" and rerun'
+                if "NUL" in str(e) else "")
+        fail(f"can't parse {path}: {e}{hint}")
+    except OSError as e:
+        fail(f"can't read {path}: {e.strerror or e}")
     if not rows:
         fail(f"{path} has no data rows")
     lookup = {c.lower().strip(): c for c in cols}
@@ -177,9 +250,15 @@ def load_csv(path: Path):
         fail(f"need an artist and a title/album column, found: {', '.join(cols)}")
     rows = [r for r in rows if (r.get(artist_col) or "").strip()
             and (r.get(title_col) or "").strip()]
-    key_col = lookup.get("rank") or lookup.get("id")
-    for i, r in enumerate(rows, 1):
-        r["_key"] = str(r[key_col]) if key_col and r.get(key_col) else f"row{i}"
+    # key on what the row says, not where it sits: row positions shift when
+    # the csv is edited between runs, and a shifted key hands one album's
+    # match to another one. same artist and title, same key, always.
+    seen: Counter = Counter()
+    for r in rows:
+        base = _row_key(r[artist_col], r[title_col])
+        seen[base] += 1
+        # a chart can list the same record twice; keep both addressable
+        r["_key"] = base if seen[base] == 1 else f"{base}-{seen[base]}"
     return rows, artist_col, title_col
 
 
@@ -198,13 +277,19 @@ def stage_match(rows, artist_col, title_col, state: State) -> None:
     if not pending:
         print(dim("matching already done"))
         return
-    mins = len(pending) * 1.1 / 60
+    # a row costs about two and a half lookups on average, not one: the
+    # title, its variants, an alias query, then a plain-text fallback
+    mins = len(pending) * matcher.MIN_SPACING * 2.5 / 60
     print(f"matching {_n(len(pending), 'album')} against musicbrainz "
           + dim(f"(about {max(1, round(mins))} min, q or ctrl-c stops, rerun resumes)"))
     base = Counter(r["status"] for r in state.results.values())
+    unreachable = []
 
     def events():
         for row, result in matcher.iter_match(pending, artist_col, title_col):
+            if result is None:  # musicbrainz went away; leave the row unanswered
+                unreachable.append(row)
+                return
             state.add_result(row["_key"], result)
             yield (f"{_one_line(row[artist_col])} — {_one_line(row[title_col])}",
                    result["status"])
@@ -223,6 +308,14 @@ def stage_match(rows, artist_col, title_col, state: State) -> None:
     print(f"matched {accent(counts.get('matched', 0))} · "
           f"review {accent(counts.get('review', 0))} · "
           f"not found {accent(counts.get('not_found', 0))}")
+    if unreachable:
+        # don't promise saved progress when the first lookup was the one
+        # that failed; there is nothing to resume and saying so is a lie
+        done = sum(counts.values()) - sum(base.values())
+        fail("musicbrainz stopped answering — "
+             + (f"the {_n(done, 'row')} matched so far {'is' if done == 1 else 'are'} "
+                "saved, rerun to pick up the rest" if done
+                else "nothing was matched, so nothing was saved; try again later"))
     if stopped:
         print(dim("stopped — progress is saved, rerun to resume"))
         sys.exit(0)
@@ -257,11 +350,13 @@ def import_set(rows, state: State) -> list[dict]:
         if row is None:
             continue
         if res["status"] == "matched":
-            out.append({"key": key, "row": row, "rgid": res["release_group_mbid"]})
+            out.append({"key": key, "row": row, "rgid": res["release_group_mbid"],
+                        "artist_mbid": res.get("artist_mbid")})
         else:
             d = state.decisions.get(key)
             if d and d.get("action") == "accept":
-                out.append({"key": key, "row": row, "rgid": d["mbid"]})
+                out.append({"key": key, "row": row, "rgid": d["mbid"],
+                            "artist_mbid": d.get("artist_mbid")})
     return out
 
 
@@ -298,13 +393,27 @@ def stage_push(items, artist_col, title_col, args, cfg) -> None:
     print(f"pushing {_n(len(items), 'album')} to lidarr "
           + dim(f"({qp['name']}, {rf['path']})"))
 
+    # albums by the same artist have to be named together on the first add:
+    # lidarr's post-add scan unmonitors anything not in albumsToMonitor
+    by_artist: dict[str, list[str]] = {}
+    for it in items:
+        aid = it.get("artist_mbid")
+        if aid:
+            by_artist.setdefault(aid, []).append(it["rgid"])
+
+    touched: list[int] = []
+
     def events():
         for it in items:
             row = it["row"]
             name = f"{_one_line(row[artist_col])} — {_one_line(row[title_col])}"
+            siblings = by_artist.get(it.get("artist_mbid") or "", [])
             try:
-                outcome = api.add_album(it["rgid"], qp["id"], mp["id"], rf["path"],
-                                        search=args.search)
+                outcome, album_id = api.add_album(
+                    it["rgid"], qp["id"], mp["id"], rf["path"],
+                    search=args.search, also_monitor=siblings)
+                if album_id and outcome in ("added", "monitored"):
+                    touched.append(album_id)
                 yield name, outcome, None
             except lidarr.LidarrError as e:
                 yield name, "failed", str(e)
@@ -326,6 +435,14 @@ def stage_push(items, artist_col, title_col, args, cfg) -> None:
     if counts.get("failed"):
         line += f" · failed {accent(counts['failed'])}"
     print(line)
+    if args.search and touched:
+        # lidarr's per-album searchForNewAlbum flag doesn't fire for albums
+        # that were only flipped to monitored, so ask for the search here
+        try:
+            api.search_albums(touched)
+            print(dim(f"asked lidarr to search for {_n(len(touched), 'album')}"))
+        except lidarr.LidarrError as e:
+            print(dim(f"search request failed: {e}"))
     for f_ in failures[:8]:
         print(dim(f"  {f_}"))
     if len(failures) > 8:
@@ -379,6 +496,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--metadata-profile", help="lidarr metadata profile (default: first)")
     p.add_argument("--root-folder", help="lidarr root folder (default: first)")
     p.add_argument("--state", help="state file (default: <csv>.chartarr.jsonl)")
+    p.add_argument("--rematch", action="store_true",
+                   help="look up rows nothing was found for again")
     p.add_argument("--example", action="store_true",
                    help="write sample.csv to the current directory")
     p.add_argument("--demo", action="store_true",
@@ -388,8 +507,31 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv=None) -> None:
-    args = build_parser().parse_args(argv)
+    try:
+        try:
+            _main(build_parser().parse_args(argv))
+        except KeyboardInterrupt:
+            # covers ctrl-c anywhere — csv loading, state replay, a wizard
+            # network call — not just the matching/push loops
+            status_end()
+            print(dim("stopped — progress is saved, rerun to resume"))
+            sys.exit(130)
+        finally:
+            # flush inside the try so a closed pipe surfaces here as a
+            # catchable BrokenPipeError, not in the interpreter's exit
+            # flush (which prints "Exception ignored" and exits 120)
+            sys.stdout.flush()
+    except BrokenPipeError:
+        # whatever we were piped into went away (head, a pager quit early);
+        # park stdout on devnull so the exit flush stays quiet
+        try:
+            os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
+        except (OSError, ValueError):
+            pass
+        sys.exit(1)
 
+
+def _main(args) -> None:
     if args.example:
         p = Path("sample.csv")
         if p.exists():
@@ -417,8 +559,21 @@ def main(argv=None) -> None:
     rows, artist_col, title_col = load_csv(csv_path)
     print(dim(f"{csv_path.name}: {_n(len(rows), 'album')}"))
 
-    state = State(Path(args.state) if args.state else
+    state_path = (Path(args.state) if args.state else
                   csv_path.with_suffix(csv_path.suffix + ".chartarr.jsonl"))
+    try:
+        state = State(state_path)
+    except OSError as e:
+        fail(f"can't read the state file {state_path}: {e.strerror or e}")
+
+    if args.rematch:
+        stale = [k for k, res in state.results.items()
+                 if res.get("status") == "not_found"]
+        if stale:
+            state.forget(stale)
+            print(dim(f"looking up {_n(len(stale), 'row')} again"))
+        else:
+            print(dim("nothing to look up again"))
 
     needs_push = not (args.match_only or args.review_only)
     if needs_push and not args.dry_run and not (cfg.get("lidarr_url") and cfg.get("api_key")):
@@ -434,10 +589,6 @@ def main(argv=None) -> None:
             stage_push(items, artist_col, title_col, args, cfg)
             if items and not args.dry_run:
                 closing_line([it["row"] for it in items], artist_col)
-    except KeyboardInterrupt:
-        status_end()
-        print(dim("stopped — progress is saved, rerun to resume"))
-        sys.exit(130)
     except lidarr.LidarrError as e:
         fail(str(e))
 
