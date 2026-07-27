@@ -421,7 +421,10 @@ def stage_push(items, artist_col, title_col, args, cfg) -> None:
                 outcome, album_id = api.add_album(
                     it["rgid"], qp["id"], mp["id"], rf["path"],
                     search=args.search, also_monitor=siblings)
-                if album_id and outcome in ("added", "monitored"):
+                # only the flipped-to-monitored rows need asking for below:
+                # a fresh add already carries searchForNewAlbum, and listing
+                # it here too would have lidarr search the same album twice
+                if album_id and outcome == "monitored":
                     touched.append(album_id)
                 yield name, outcome, None
             except lidarr.LidarrError as e:

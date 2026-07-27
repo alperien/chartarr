@@ -159,6 +159,46 @@ def test_run_survives_a_broken_locale(monkeypatch):
     assert screen._run(lambda scr, x: (scr, x), 7) == ("scr", 7)
 
 
+@pytest.mark.skipif(not sys.platform.startswith("linux"), reason="needs a pty")
+def test_nodelay_does_not_survive_into_the_next_session_on_a_real_terminal():
+    """the in-process check in test_review.py, proven against real curses.
+
+    _progress polls with nodelay(True) so it can notice q while drawing.
+    cpython stores that on the window and curses.wrapper does not clear it
+    between sessions, so the review loop that runs next inherited it: its
+    getch() returned -1 immediately, forever, redrawing on a pinned core.
+    """
+    if not _terminfo_has("xterm"):
+        pytest.skip("no xterm terminfo on this box")
+    code = (
+        "import sys, time\n"
+        "from chartarr import screen\n"
+        # session one polls, exactly like the match progress screen
+        "screen._run(lambda scr: (scr.nodelay(True), scr.getch()))\n"
+        # session two must block; timeout() bounds it so the test can end
+        "def probe(scr):\n"
+        "    scr.timeout(400)\n"
+        "    t0 = time.monotonic()\n"
+        "    scr.getch()\n"
+        "    return time.monotonic() - t0\n"
+        "waited = screen._run(probe)\n"
+        # a leaked nodelay returns instantly; a blocking window waits out
+        # the timeout. anything past half the budget proves it blocked.
+        "sys.exit(0 if waited > 0.2 else 3)")
+    master, slave = os.openpty()
+    try:
+        proc = subprocess.run(
+            [sys.executable, "-c", code], stdin=slave, stdout=slave,
+            stderr=subprocess.PIPE, cwd=str(REPO), timeout=30,
+            env={**os.environ, "TERM": "xterm"})
+    finally:
+        os.close(master)
+        os.close(slave)
+    assert proc.returncode == 0, (
+        "the second session's getch did not block — nodelay leaked "
+        f"({proc.stderr.decode()[-300:]})")
+
+
 def test_review_run_with_no_items_is_a_noop():
     # used to hit items[pos] -> IndexError before the first draw
     assert review.run([], "artist", "title", lambda k, d: None) is None
