@@ -235,7 +235,21 @@ class Lidarr:
         time.sleep(0.2)  # be gentle
         return "added", (created or {}).get("id")
 
-    def search_albums(self, album_ids: list[int]) -> None:
-        for i in range(0, len(album_ids), 100):
-            self._call("command", method="POST",
-                       json={"name": "AlbumSearch", "albumIds": album_ids[i:i + 100]})
+    def search_albums(self, album_ids: list[int]) -> tuple[int, list[str]]:
+        """queue an AlbumSearch for these rows, in batches of 100.
+
+        returns (queued, errors). a batch that fails does not stop the
+        rest: on a long chart the last fifty albums shouldn't go unsearched
+        because one request in the middle timed out.
+        """
+        ids = [i for i in album_ids if i is not None]
+        queued, errors = 0, []
+        for i in range(0, len(ids), 100):
+            chunk = ids[i:i + 100]
+            try:
+                self._call("command", method="POST",
+                           json={"name": "AlbumSearch", "albumIds": chunk})
+                queued += len(chunk)
+            except LidarrError as e:
+                errors.append(str(e))
+        return queued, errors
