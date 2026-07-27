@@ -298,3 +298,36 @@ def test_broken_pipe_exits_quietly_not_120(tmp_path):
             "chartarr did not exit after its reader went away") from None
     assert proc.returncode == 1
     assert b"BrokenPipeError" not in err and b"Traceback" not in err
+
+
+def _unreachable_match(rows, artist_col, title_col):
+    for row in rows:
+        yield row, None  # musicbrainz never answered
+
+
+def test_outage_before_any_match_admits_nothing_was_saved(tmp_path, monkeypatch, capsys):
+    # the message used to say "the rows matched so far are saved" even when
+    # the very first lookup failed and there was nothing to resume
+    monkeypatch.setattr(cli.matcher, "iter_match", _unreachable_match)
+    rows = [{"artist": "Radiohead", "title": "Kid A", "_key": "k1"}]
+    state = State(tmp_path / "s.jsonl")
+    with pytest.raises(SystemExit):
+        cli.stage_match(rows, "artist", "title", state)
+    err = capsys.readouterr().err
+    assert "nothing was matched" in err and "nothing was saved" in err
+    assert not state.results
+
+
+def test_outage_midway_reports_what_it_kept(tmp_path, monkeypatch, capsys):
+    def half(rows, artist_col, title_col):
+        yield rows[0], {"status": "matched", "release_group_mbid": "rg-1"}
+        yield rows[1], None
+
+    monkeypatch.setattr(cli.matcher, "iter_match", half)
+    rows = [{"artist": "a", "title": "t1", "_key": "k1"},
+            {"artist": "b", "title": "t2", "_key": "k2"}]
+    state = State(tmp_path / "s.jsonl")
+    with pytest.raises(SystemExit):
+        cli.stage_match(rows, "artist", "title", state)
+    assert "1 row matched so far is saved" in capsys.readouterr().err
+    assert list(state.results) == ["k1"]

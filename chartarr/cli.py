@@ -309,8 +309,13 @@ def stage_match(rows, artist_col, title_col, state: State) -> None:
           f"review {accent(counts.get('review', 0))} · "
           f"not found {accent(counts.get('not_found', 0))}")
     if unreachable:
-        fail("musicbrainz stopped answering — the rows matched so far are "
-             "saved, rerun to pick up the rest")
+        # don't promise saved progress when the first lookup was the one
+        # that failed; there is nothing to resume and saying so is a lie
+        done = sum(counts.values()) - sum(base.values())
+        fail("musicbrainz stopped answering — "
+             + (f"the {_n(done, 'row')} matched so far {'is' if done == 1 else 'are'} "
+                "saved, rerun to pick up the rest" if done
+                else "nothing was matched, so nothing was saved; try again later"))
     if stopped:
         print(dim("stopped — progress is saved, rerun to resume"))
         sys.exit(0)
