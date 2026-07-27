@@ -270,6 +270,8 @@ def test_setup_wizard_key_goes_through_getpass_and_file_is_0600(
     assert not any("api key" in p for p in prompts["input"])
 
 
+@pytest.mark.skipif(os.name != "posix",
+                    reason="closing a pipe read end only signals the writer on posix")
 def test_broken_pipe_exits_quietly_not_120(tmp_path):
     # `chartarr ... | head -0` used to end with "Exception ignored ...
     # BrokenPipeError" from the interpreter's exit flush, exit code 120
@@ -280,7 +282,13 @@ def test_broken_pipe_exits_quietly_not_120(tmp_path):
         [sys.executable, "-m", "chartarr", str(chart), "--push-only", "--dry-run"],
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env, cwd=str(REPO))
     proc.stdout.close()  # the reader goes away before chartarr can flush
-    err = proc.stderr.read()
-    proc.stderr.close()
-    assert proc.wait(timeout=30) == 1
+    try:
+        # read with a deadline: a child that never notices the closed pipe
+        # would otherwise hang the suite rather than fail it
+        _, err = proc.communicate(timeout=30)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.communicate()
+        raise AssertionError("chartarr did not exit after its reader went away")
+    assert proc.returncode == 1
     assert b"BrokenPipeError" not in err and b"Traceback" not in err
