@@ -213,7 +213,9 @@ def test_setup_wizard_eof_at_a_prompt_cancels_cleanly(monkeypatch, capsys):
     def eof(prompt=""):
         raise EOFError
 
+    # both prompts, or the unpatched one blocks on a real stdin read
     monkeypatch.setattr("builtins.input", eof)
+    monkeypatch.setattr(cli.getpass, "getpass", eof)
     with pytest.raises(SystemExit) as exc:
         setup_wizard({})
     assert exc.value.code == 1
@@ -227,6 +229,7 @@ def test_setup_wizard_ctrl_c_at_a_prompt_cancels_cleanly(monkeypatch, capsys):
         raise KeyboardInterrupt
 
     monkeypatch.setattr("builtins.input", interrupt)
+    monkeypatch.setattr(cli.getpass, "getpass", interrupt)
     with pytest.raises(SystemExit) as exc:
         setup_wizard({})
     assert exc.value.code == 1
@@ -258,14 +261,16 @@ def test_setup_wizard_key_goes_through_getpass_and_file_is_0600(
     monkeypatch.setattr(cli.lidarr, "Lidarr", Api)
     # the perms must come from creation, not from the chmod afterthought
     monkeypatch.setattr(Path, "chmod", lambda *a, **kw: None)
-    old_umask = os.umask(0o022)
+    old_umask = os.umask(0o022) if os.name == "posix" else None
     try:
         cfg = setup_wizard({})
     finally:
-        os.umask(old_umask)
+        if old_umask is not None:
+            os.umask(old_umask)
     assert cfg == {"lidarr_url": "http://lidarr:8686", "api_key": "s3kret"}
     assert json.loads(config_home.read_text())["api_key"] == "s3kret"
-    assert (config_home.stat().st_mode & 0o777) == 0o600
+    if os.name == "posix":  # windows doesn't carry unix mode bits
+        assert (config_home.stat().st_mode & 0o777) == 0o600
     assert any("api key" in p for p in prompts["getpass"])
     assert not any("api key" in p for p in prompts["input"])
 
@@ -289,6 +294,7 @@ def test_broken_pipe_exits_quietly_not_120(tmp_path):
     except subprocess.TimeoutExpired:
         proc.kill()
         proc.communicate()
-        raise AssertionError("chartarr did not exit after its reader went away")
+        raise AssertionError(
+            "chartarr did not exit after its reader went away") from None
     assert proc.returncode == 1
     assert b"BrokenPipeError" not in err and b"Traceback" not in err
