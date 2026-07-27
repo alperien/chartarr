@@ -437,6 +437,65 @@ def test_without_the_search_flag_nothing_is_searched(
     assert api.searched == []
 
 
+def test_a_skip_is_honoured_even_on_a_row_that_matched(tmp_path):
+    # a row can match cleanly on a --rematch after being decided, and the
+    # state file is editable; the answer the user gave is the one they meant
+    state = State(tmp_path / "s.jsonl")
+    state.add_result("k", {"status": "matched", "release_group_mbid": "rg-auto",
+                           "artist_mbid": "am"})
+    state.add_decision("k", {"action": "skip"})
+    rows = [{"_key": "k", "artist": "a", "title": "t"}]
+    assert cli.import_set(rows, state) == []
+
+
+def test_a_repick_replaces_the_automatic_choice(tmp_path):
+    state = State(tmp_path / "s.jsonl")
+    state.add_result("k", {"status": "matched", "release_group_mbid": "rg-auto",
+                           "artist_mbid": "am-auto"})
+    state.add_decision("k", {"action": "accept", "mbid": "rg-user",
+                             "artist_mbid": "am-user"})
+    rows = [{"_key": "k", "artist": "a", "title": "t"}]
+    items = cli.import_set(rows, state)
+    assert [(i["rgid"], i["artist_mbid"]) for i in items] == [("rg-user", "am-user")]
+
+
+def test_an_undone_decision_falls_back_to_the_match(tmp_path):
+    # u in the review screen writes a clear record; the row should go back
+    # to whatever the matcher said rather than dropping out of the push
+    state = State(tmp_path / "s.jsonl")
+    state.add_result("k", {"status": "matched", "release_group_mbid": "rg-auto",
+                           "artist_mbid": "am"})
+    state.add_decision("k", {"action": "skip"})
+    state.add_decision("k", {"action": "clear"})
+    rows = [{"_key": "k", "artist": "a", "title": "t"}]
+    assert [i["rgid"] for i in cli.import_set(rows, state)] == ["rg-auto"]
+
+
+def test_a_matched_row_with_no_release_group_is_left_out(tmp_path):
+    # an older state file can hold one; pushing it dies at lidarr's lookup
+    state = State(tmp_path / "s.jsonl")
+    state.add_result("k", {"status": "matched"})
+    rows = [{"_key": "k", "artist": "a", "title": "t"}]
+    assert cli.import_set(rows, state) == []
+
+
+def test_an_accepted_review_row_still_pushes(tmp_path):
+    # the ordinary path, unchanged: uncertain row, user picks a candidate
+    state = State(tmp_path / "s.jsonl")
+    state.add_result("k", {"status": "review", "release_group_mbid": "rg-guess"})
+    state.add_decision("k", {"action": "accept", "mbid": "rg-picked",
+                             "artist_mbid": "am"})
+    rows = [{"_key": "k", "artist": "a", "title": "t"}]
+    assert [i["rgid"] for i in cli.import_set(rows, state)] == ["rg-picked"]
+
+
+def test_an_undecided_review_row_is_not_pushed(tmp_path):
+    state = State(tmp_path / "s.jsonl")
+    state.add_result("k", {"status": "review", "release_group_mbid": "rg-guess"})
+    rows = [{"_key": "k", "artist": "a", "title": "t"}]
+    assert cli.import_set(rows, state) == []
+
+
 def test_rematch_clears_only_the_rows_nothing_was_found_for(tmp_path):
     state = State(tmp_path / "s.jsonl")
     state.add_result("miss", {"status": "not_found"})
