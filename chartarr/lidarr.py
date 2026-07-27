@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import time
+import urllib.parse
 
 import requests
 
@@ -24,6 +25,27 @@ class LidarrError(Exception):
         super().__init__(message)
         self.status = status
         self.body = body
+
+
+def _safe_url(url: str) -> str:
+    """the url with any user:password@ removed, for showing in messages.
+
+    a lidarr url can carry basic-auth credentials — behind a reverse proxy
+    that asks for them, http://user:pw@host is how you get through. those
+    end up in every connection error otherwise, and errors get pasted into
+    bug reports.
+    """
+    try:
+        parts = urllib.parse.urlsplit(url)
+        host = parts.hostname
+    except ValueError:
+        return url
+    if not host:
+        return url  # nothing parsed as a host; nothing to hide
+    if parts.port:
+        host = f"{host}:{parts.port}"
+    return urllib.parse.urlunsplit(
+        (parts.scheme, host, parts.path, parts.query, parts.fragment))
 
 
 def _is_duplicate(status: int, body: str) -> bool:
@@ -59,8 +81,16 @@ def _is_duplicate(status: int, body: str) -> bool:
 class Lidarr:
     def __init__(self, url: str, api_key: str):
         self.base = url.rstrip("/")
+        # what the user sees in errors: the same address minus any
+        # credentials, so a pasted traceback doesn't carry a password
+        self.shown = _safe_url(self.base)
         self.s = requests.Session()
         self.s.headers["X-Api-Key"] = api_key
+
+    def _scrub(self, text) -> str:
+        """text with this instance's url swapped for the credential-free one."""
+        out = str(text)
+        return out.replace(self.base, self.shown) if self.base != self.shown else out
 
     def _call(self, path: str, method: str = "GET", **kw):
         url = f"{self.base}/api/v1/{path}"
@@ -68,33 +98,37 @@ class Lidarr:
             r = self.s.request(method, url, timeout=60, **kw)
         except requests.ConnectionError as e:
             raise LidarrError(
-                f"Can't reach Lidarr at {self.base} — is it running, and is the "
+                f"Can't reach Lidarr at {self.shown} — is it running, and is the "
                 f"URL right? (the address you use in your browser)") from e
         except requests.Timeout as e:
-            raise LidarrError(f"Lidarr at {self.base} timed out.") from e
+            raise LidarrError(f"Lidarr at {self.shown} timed out.") from e
         except (requests.exceptions.InvalidSchema,
                 requests.exceptions.MissingSchema,
                 requests.exceptions.InvalidURL) as e:
             raise LidarrError(
-                f"{self.base} is not a URL Lidarr can be reached at — it needs "
+                f"{self.shown} is not a URL Lidarr can be reached at — it needs "
                 f"to start with http:// or https://") from e
         except requests.RequestException as e:
-            raise LidarrError(f"Lidarr request failed: {e}") from e
+            # requests quotes the url it was given, credentials and all
+            raise LidarrError(
+                f"Lidarr request to {self.shown} failed: {self._scrub(e)}") from e
 
         if r.status_code == 401:
             raise LidarrError(
                 "Lidarr rejected the API key (401). Copy it from "
                 "Settings → General → Security → API Key.", status=401)
         if r.status_code >= 400:
-            raise LidarrError(f"HTTP {r.status_code}: {r.text[:300] or 'no details'}",
-                              status=r.status_code, body=r.text)
+            # a proxy's error page can quote the request url back at us
+            raise LidarrError(
+                f"HTTP {r.status_code}: {self._scrub(r.text)[:300] or 'no details'}",
+                status=r.status_code, body=r.text)
         if not r.text:
             return None
         try:
             return r.json()
         except ValueError as e:
             raise LidarrError(
-                f"Lidarr returned something that isn't JSON — is {self.base} "
+                f"Lidarr returned something that isn't JSON — is {self.shown} "
                 f"really Lidarr, and not a login page or another service?") from e
 
     def status(self) -> dict:

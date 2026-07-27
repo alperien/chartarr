@@ -352,20 +352,34 @@ def stage_review(rows, artist_col, title_col, state: State) -> None:
 
 
 def import_set(rows, state: State) -> list[dict]:
+    """the albums to push: automatic matches plus accepted review picks.
+
+    a decision outranks the match result. review only offers uncertain
+    rows, but a row can be decided and then match cleanly on a --rematch,
+    and the state file is editable — either way the answer the user gave
+    is the one they meant, so an explicit skip is honoured on a matched
+    row and a re-pick replaces the automatic choice.
+    """
     by_key = {r["_key"]: r for r in rows}
     out = []
     for key, res in state.results.items():
         row = by_key.get(key)
         if row is None:
             continue
-        if res["status"] == "matched":
-            out.append({"key": key, "row": row, "rgid": res["release_group_mbid"],
-                        "artist_mbid": res.get("artist_mbid")})
+        d = state.decisions.get(key) or {}
+        if d.get("action") == "skip":
+            continue
+        if d.get("action") == "accept":
+            rgid, artist_mbid = d.get("mbid"), d.get("artist_mbid")
+        elif res["status"] == "matched":
+            rgid, artist_mbid = res.get("release_group_mbid"), res.get("artist_mbid")
         else:
-            d = state.decisions.get(key)
-            if d and d.get("action") == "accept":
-                out.append({"key": key, "row": row, "rgid": d["mbid"],
-                            "artist_mbid": d.get("artist_mbid")})
+            continue
+        # an older state file can carry a matched row with no id; pushing
+        # it would fail at lidarr's lookup, so leave it out
+        if rgid:
+            out.append({"key": key, "row": row, "rgid": rgid,
+                        "artist_mbid": artist_mbid})
     return out
 
 

@@ -285,3 +285,79 @@ def test_html_login_page_is_not_mistaken_for_lidarr():
                   body="<html><body>Sign in to continue</body></html>")
     with pytest.raises(LidarrError, match="really Lidarr"):
         api().status()
+
+
+# --- credentials in the url stay out of the error text ---
+
+CREDS = "http://admin:hunter2@lidarr.test:8686"
+CREDS_API = CREDS + "/api/v1"
+
+
+def creds_api():
+    return Lidarr(CREDS, "sekrit")
+
+
+def test_safe_url_drops_only_the_credentials():
+    assert lidarr._safe_url(CREDS) == BASE
+    assert lidarr._safe_url("http://:tok3n@lidarr.test:8686") == BASE
+    # everything else about the url survives untouched
+    assert lidarr._safe_url("https://u:p@host/base?x=1#f") == "https://host/base?x=1#f"
+    assert lidarr._safe_url("http://lidarr.test:8686") == "http://lidarr.test:8686"
+    # a default port isn't invented, and unparseable input is left alone
+    assert lidarr._safe_url("http://lidarr.test") == "http://lidarr.test"
+    assert lidarr._safe_url("not a url") == "not a url"
+
+
+@responses.activate
+def test_connection_error_does_not_echo_the_password():
+    responses.add(responses.GET, CREDS_API + "/system/status",
+                  body=requests.ConnectionError("refused"))
+    with pytest.raises(LidarrError) as e:
+        creds_api().status()
+    assert "hunter2" not in str(e.value)
+    assert "lidarr.test:8686" in str(e.value)  # still says where it tried
+
+
+@responses.activate
+def test_timeout_does_not_echo_the_password():
+    responses.add(responses.GET, CREDS_API + "/system/status",
+                  body=requests.Timeout("60s"))
+    with pytest.raises(LidarrError) as e:
+        creds_api().status()
+    assert "hunter2" not in str(e.value)
+
+
+@responses.activate
+def test_a_generic_request_failure_does_not_echo_the_password():
+    # requests puts the url it was handed into its own message
+    responses.add(responses.GET, CREDS_API + "/system/status",
+                  body=requests.TooManyRedirects(f"too many redirects for {CREDS}"))
+    with pytest.raises(LidarrError) as e:
+        creds_api().status()
+    assert "hunter2" not in str(e.value)
+
+
+@responses.activate
+def test_a_proxy_error_page_quoting_the_url_is_scrubbed():
+    responses.add(responses.GET, CREDS_API + "/system/status", status=502,
+                  body=f"Bad gateway while proxying to {CREDS}/api/v1/system/status")
+    with pytest.raises(LidarrError) as e:
+        creds_api().status()
+    assert "hunter2" not in str(e.value)
+
+
+@responses.activate
+def test_non_json_reply_does_not_echo_the_password():
+    responses.add(responses.GET, CREDS_API + "/system/status", status=200,
+                  body="<html>login</html>")
+    with pytest.raises(LidarrError) as e:
+        creds_api().status()
+    assert "hunter2" not in str(e.value)
+
+
+@responses.activate
+def test_the_credentials_are_still_sent_to_lidarr():
+    # scrubbing is for the message only; the request must keep working
+    responses.add(responses.GET, CREDS_API + "/system/status", json={"version": "3"})
+    assert creds_api().status() == {"version": "3"}
+    assert "admin:hunter2" in responses.calls[0].request.url
