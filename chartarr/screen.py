@@ -1,6 +1,7 @@
 """curses screens: a shared progress view and helpers for the review list."""
 from __future__ import annotations
 
+import os
 import sys
 import time
 import unicodedata
@@ -91,12 +92,57 @@ def _put(scr, y, x, s, attr=0):
         pass
 
 
+# rose, picked to stay legible on a light terminal as well as a dark one.
+# 218 is the pastel proper (#ffafd7) and looks lovely on dark, but it's pale
+# enough to wash out on a white background — so it's only used where the
+# terminal reports 256 colours AND is dark, with 168 (#d75f87, a deeper rose
+# that clears the contrast floor either way) as the everyday choice. eight
+# colour terminals get magenta, the nearest thing to rose they have.
+ROSE_256 = 168
+ROSE_PASTEL_256 = 218
+
+
+def _rose() -> int:
+    """the accent colour number this terminal can actually show."""
+    if curses.COLORS >= 256:
+        return ROSE_PASTEL_256 if _dark_background() else ROSE_256
+    return curses.COLOR_MAGENTA
+
+
+def _dark_background() -> bool:
+    """true unless the terminal says it's light.
+
+    COLORFGBG is what terminals that care about this set (rxvt, konsole,
+    some terminfo-aware setups); "15;0" means light text on dark. absent
+    it, assume dark, which is the common case and the safer guess: the
+    pastel only appears when we're reasonably sure it'll be readable.
+    """
+    fgbg = os.environ.get("COLORFGBG", "")
+    if ";" in fgbg:
+        bg = fgbg.rsplit(";", 1)[-1].strip()
+        if bg.isdigit():
+            return int(bg) < 7 or int(bg) == 8
+    return True
+
+
+def accent_pair() -> int:
+    """set up and return the accent attribute; 0 when there's no colour."""
+    if not curses.has_colors():
+        return 0
+    curses.use_default_colors()
+    try:
+        curses.init_pair(1, _rose(), -1)
+    except (curses.error, ValueError):
+        # some terminals lie about COLORS; magenta is always safe
+        try:
+            curses.init_pair(1, curses.COLOR_MAGENTA, -1)
+        except curses.error:
+            return 0
+    return curses.color_pair(1)
+
+
 def _accent():
-    if curses.has_colors():
-        curses.use_default_colors()
-        curses.init_pair(1, curses.COLOR_CYAN, -1)
-        return curses.color_pair(1)
-    return 0
+    return accent_pair()
 
 
 def _bar(done, total, width):

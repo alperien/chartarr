@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import os
 
-from .screen import _fit, _put, _run, available, curses
+from .screen import _fit, _put, _run, accent_pair, available, curses
 
 
 def run(items, artist_col, title_col, on_decision):
@@ -28,11 +28,7 @@ def run(items, artist_col, title_col, on_decision):
 
 def _loop(scr, items, artist_col, title_col, on_decision):
     curses.curs_set(0)
-    accent = 0
-    if curses.has_colors():
-        curses.use_default_colors()
-        curses.init_pair(1, curses.COLOR_CYAN, -1)
-        accent = curses.color_pair(1)
+    accent = accent_pair()
     dim = curses.A_DIM
 
     decisions = {}

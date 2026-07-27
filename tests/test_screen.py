@@ -213,3 +213,38 @@ def test_screen_ok_on_a_real_pty_follows_term():
             os.close(master)
             os.close(slave)
         assert proc.stderr.decode() == expected, term
+
+
+# accent colour
+
+def test_rose_is_the_pastel_on_a_256_colour_dark_terminal(monkeypatch):
+    monkeypatch.setattr(screen.curses, "COLORS", 256, raising=False)
+    monkeypatch.delenv("COLORFGBG", raising=False)
+    assert screen._rose() == screen.ROSE_PASTEL_256
+
+
+def test_rose_deepens_on_a_light_background(monkeypatch):
+    # the pastel washes out on white; 168 clears the contrast floor either way
+    monkeypatch.setattr(screen.curses, "COLORS", 256, raising=False)
+    monkeypatch.setenv("COLORFGBG", "0;15")
+    assert screen._rose() == screen.ROSE_256
+
+
+def test_rose_falls_back_to_magenta_without_256_colours(monkeypatch):
+    monkeypatch.setattr(screen.curses, "COLORS", 8, raising=False)
+    assert screen._rose() == screen.curses.COLOR_MAGENTA
+
+
+def test_dark_background_reads_colorfgbg(monkeypatch):
+    for value, dark in [("15;0", True), ("0;15", False), ("7;0", True),
+                        ("", True), ("nonsense", True)]:
+        if value:
+            monkeypatch.setenv("COLORFGBG", value)
+        else:
+            monkeypatch.delenv("COLORFGBG", raising=False)
+        assert screen._dark_background() is dark, value
+
+
+def test_accent_pair_is_zero_without_colour(monkeypatch):
+    monkeypatch.setattr(screen.curses, "has_colors", lambda: False)
+    assert screen.accent_pair() == 0
