@@ -124,6 +124,8 @@ def test_fit_narrow_and_newlines():
 
 # degradation seams
 
+@pytest.mark.skipif(os.name != "posix",
+                    reason="windows-curses doesn't consult TERM/terminfo")
 def test_available_is_false_when_term_is_broken(monkeypatch):
     if screen.curses is None:
         pytest.skip("no curses at all")
@@ -162,6 +164,8 @@ def test_review_run_with_no_items_is_a_noop():
     assert review.run([], "artist", "title", lambda k, d: None) is None
 
 
+@pytest.mark.skipif(os.name != "posix",
+                    reason="windows-curses ignores TERM, so it would open a real console")
 def test_review_run_degrades_when_the_terminal_is_unusable(monkeypatch, capsys):
     if screen.curses is None:
         pytest.skip("no curses at all")
