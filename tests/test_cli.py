@@ -380,6 +380,7 @@ class _FakeApi:
 
     def search_albums(self, album_ids):
         self.searched.extend(album_ids)
+        return len(album_ids), []
 
 
 def _push(monkeypatch, tmp_path, outcomes, **flags):
@@ -444,6 +445,24 @@ def test_every_pushed_album_is_searched_exactly_once(
                 argv=["--search"])
     assert sorted(api.searched) == [1, 2, 3, 4, 5, 6]
     assert len(api.searched) == len(set(api.searched))
+
+
+def test_a_partly_failed_search_says_how_many_were_missed(
+        monkeypatch, tmp_path, capsys):
+    api = _FakeApi({"rg-1": ("added", 1), "rg-2": ("added", 2)})
+    api.search_albums = lambda ids: (1, ["HTTP 500: boom"])
+    monkeypatch.setattr(cli.lidarr, "Lidarr", lambda url, key: api)
+    monkeypatch.setattr(cli, "_screen_ok", lambda: False)
+    items = [{"key": "k1", "row": {"artist": "a", "title": "t"}, "rgid": "rg-1",
+              "artist_mbid": "am"},
+             {"key": "k2", "row": {"artist": "b", "title": "u"}, "rgid": "rg-2",
+              "artist_mbid": "am"}]
+    args = cli.build_parser().parse_args(["chart.csv", "--search"])
+    cli.stage_push(items, "artist", "title", args,
+                   {"lidarr_url": "http://l:8686", "api_key": "k"})
+    out = capsys.readouterr().out
+    assert "search for 1 album" in out
+    assert "1 album went unsearched" in out and "boom" in out
 
 
 def test_without_search_the_summary_says_nothing_was_searched(

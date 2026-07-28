@@ -461,13 +461,14 @@ def stage_push(items, artist_col, title_col, args, cfg) -> None:
         line += f" · failed {accent(counts['failed'])}"
     print(line)
     if args.search and touched:
-        # the only thing that actually starts a download: one AlbumSearch
+        # the only thing that actually starts a download: an AlbumSearch
         # for everything this run added or turned on
-        try:
-            api.search_albums(touched)
-            print(dim(f"asked lidarr to search for {_n(len(touched), 'album')}"))
-        except lidarr.LidarrError as e:
-            print(dim(f"search request failed: {e}"))
+        queued, errors = api.search_albums(touched)
+        if queued:
+            print(dim(f"asked lidarr to search for {_n(queued, 'album')}"))
+        missed = len(touched) - queued
+        if missed:
+            print(dim(f"{_n(missed, 'album')} went unsearched: {errors[0]}"))
     elif touched and not args.dry_run:
         # without --search the albums sit there monitored and idle, which
         # looks like a finished job that downloaded nothing
