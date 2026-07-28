@@ -5,16 +5,17 @@
 Feed a CSV of albums to Lidarr.
 
 chartarr matches each artist/title pair against MusicBrainz and adds the
-results to Lidarr as monitored albums. Uncertain matches get a review
-screen. Only the albums in the CSV are monitored, not each artist's full
-discography.
+results to Lidarr as monitored albums. Anything it isn't sure about gets
+a review screen. Only the albums in the CSV are monitored, not each
+artist's full discography.
 
 <img src="docs/review.svg" alt="the review screen">
 
-Lidarr has no album import of its own. Its import lists take artists,
-and an artist comes with everything they ever released. chartarr adds
-the artist, marks your albums as the ones to monitor, and leaves the
-rest alone.
+Lidarr has no album import of its own. The import lists it does have
+take artists, and adding an artist pulls in everything they ever
+released, which is rarely what a chart wants. So chartarr adds the
+artist with just your albums marked to monitor. The rest stays
+unmonitored.
 
 ## Install
 
@@ -57,8 +58,9 @@ Piped output prints plain lines instead of the screens. Rows that need
 review are held until there is a terminal, or `--yes` pushes without
 them.
 
-`chartarr --example` writes a sample CSV to try. `chartarr --demo` plays
-a full run on fake data without saving or sending anything.
+`chartarr --example` writes a sample CSV to try things on. `chartarr
+--demo` plays through a whole run on fake data; nothing is saved or
+sent.
 
 ## Options
 
@@ -83,7 +85,8 @@ Needs an artist column (`artist`, `artists`, `artist_name`,
 `albumartist`, `album artist`) and a title column (`title`, `album`,
 `album_title`, `release`, `name`). Other columns are ignored, apart from
 `release_date` and `genres`, which feed the summary line. A
-RateYourMusic export works unchanged.
+RateYourMusic export works unchanged; that's the file this was written
+for in the first place.
 
 Rows are keyed by artist and title, not position, so the CSV can be
 edited and reordered between runs without losing any matches.
