@@ -11,6 +11,20 @@ alone.
 
 ### Fixed
 
+- **A skip in the review screen is now honoured on a row that also
+  matched.** The push took the automatic match whenever there was one and
+  only consulted your decision otherwise, so a row that was skipped and
+  then matched on a later `--rematch` went to Lidarr anyway, and a re-pick
+  lost to the candidate the matcher had led with. A decision now outranks
+  the match result. A matched row carrying no release group id, possible
+  in a state file written by an older version, is left out instead of
+  failing at Lidarr's lookup.
+- **A Lidarr URL with credentials in it no longer appears in error
+  messages.** `http://user:pw@host` is how you get through a reverse proxy
+  that asks for basic auth, and the whole URL was quoted back in every
+  connection error, timeout and proxy error page. The password is stripped
+  from what's printed; the request still sends it.
+
 - **The review screen pinned a CPU core while it waited for you.** The
   progress screens poll for a keypress so they can notice `q` mid-run, and
   that non-blocking mode stayed on the window afterwards, `curses.wrapper`
