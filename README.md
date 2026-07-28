@@ -1,14 +1,22 @@
 # chartarr
 
-Match a CSV of albums against MusicBrainz and add them to Lidarr as
-monitored albums.
+[![test](https://github.com/alperien/chartarr/actions/workflows/test.yml/badge.svg)](https://github.com/alperien/chartarr/actions/workflows/test.yml)
 
-Lidarr cannot import files, and its import lists operate on artists
-rather than albums. chartarr looks up each artist/title pair on
-MusicBrainz, lets you resolve uncertain matches, and adds the resulting
-albums to Lidarr through its API.
+Feed a CSV of albums to Lidarr.
 
-## Installation
+chartarr looks up every artist/title pair on MusicBrainz, lets you settle
+the doubtful ones in a small terminal UI, and adds the results to Lidarr
+as monitored albums. The albums from your list — not the discographies
+they came from.
+
+<img src="docs/review.svg" alt="the review screen: a list of uncertain matches, candidates for the selected row underneath">
+
+Lidarr can't do this by itself. It has no album import, and its import
+lists work on artists, where one artist brings a whole discography
+along. chartarr adds each album's artist with only your albums marked
+for monitoring, so the rest of the catalogue stays quiet.
+
+## Install
 
     pipx install git+https://github.com/alperien/chartarr
 
@@ -16,52 +24,44 @@ or, with [uv](https://docs.astral.sh/uv/):
 
     uv tool install git+https://github.com/alperien/chartarr
 
-Requires Python 3.10 or later. On Windows, the windows-curses dependency
-is installed automatically. Not on PyPI — install from here.
+Python 3.10 or later. Windows pulls in windows-curses automatically.
+Not on PyPI yet, so install from here.
 
-## Usage
+## Use
 
     chartarr chart.csv
 
-This runs three stages:
+Matching runs first. MusicBrainz allows one request per second and a row
+usually needs two or three, so a 200-row chart takes around ten minutes.
+Everything is written to `<csv>.chartarr.jsonl` as it happens; press q,
+or lose your connection, and the next run picks up where this one
+stopped.
 
-1. **Match.** Each artist/title pair is looked up on MusicBrainz.
-   Requests are limited to one per second, per the MusicBrainz rate
-   limit, and a row usually costs two or three of them. A fullscreen
-   progress view shows the bar, running totals and the most recent
-   lookups; press q to stop. Progress is saved to
-   `<csv>.chartarr.jsonl`; interrupted runs resume where they left off.
-   If MusicBrainz stops answering, the run stops with what it has rather
-   than writing those rows off as unmatched.
-2. **Review.** Uncertain matches are shown in an interactive list.
-   Arrow keys move, Enter accepts the suggested match, 1-3 select an
-   alternative, s skips a row, u undoes a decision, a accepts all
-   suggestions, q finishes. Decisions are saved immediately and can be
-   changed by selecting a row again.
-3. **Push.** Matched albums are added to Lidarr as monitored albums,
-   with the same fullscreen progress view. Adding an album means adding
-   its artist, and Lidarr fills in their whole discography behind the
-   scenes; chartarr names the albums from your chart as it goes, so
-   those stay monitored and the rest of the discography does not.
-   Albums already in Lidarr are skipped; albums Lidarr knows but does
-   not monitor are set to monitored. This stage is safe to re-run.
+<img src="docs/match.svg" alt="the match screen: a progress bar, running totals, and the most recent lookups">
 
-   Monitoring an album does not download it — Lidarr picks monitored
-   albums up on its own schedule. Pass `--search` to have it go looking
-   straight away; without it, chartarr says how many albums are waiting.
+Rows the matcher wasn't sure about go to review. Enter accepts the
+suggestion, 1–3 pick an alternative, s skips the row, u undoes a
+decision, a accepts everything left, q finishes. Decisions are saved the
+moment you make them.
 
-When output is piped or no terminal is available, the progress screens
-are replaced by plain line output.
+Then the push. Albums Lidarr already has are skipped or flipped to
+monitored rather than added twice, so re-running a chart is always safe.
+Note that monitoring an album doesn't download it — Lidarr gets to those
+on its own schedule. Pass `--search` to have it start looking
+immediately; without it, chartarr tells you how many albums are waiting.
 
-On first run, chartarr asks for the Lidarr URL and API key (Settings >
-General > Security) and stores them in `~/.config/chartarr/config.json`,
-readable only by you. The environment variables `LIDARR_URL` and
-`LIDARR_API_KEY` take precedence over the file; `CHARTARR_LIDARR_URL` and
-`CHARTARR_API_KEY` work too, if the shorter names are already taken.
+<img src="docs/push.svg" alt="the push screen: adding albums to lidarr with per-album outcomes">
+
+At the end you get a one-line portrait of the chart:
+
+    39 albums, 36 artists · 1959–2017 ▂▄▄▂█▆▇ · mostly art rock
+
+When output is piped, the screens are replaced by plain lines, and rows
+that need review wait for a terminal (`--yes` pushes without them).
 
 To try it without your own data: `chartarr --example` writes a small
-sample CSV, and `chartarr --demo` simulates a full run (match, review,
-push) on sample data without saving or sending anything.
+sample CSV, and `chartarr --demo` plays a whole run on made-up data
+without saving or sending anything.
 
 ## Options
 
@@ -80,29 +80,35 @@ push) on sample data without saving or sending anything.
     --rematch           look up rows nothing was found for again
     --setup             set the Lidarr URL and API key
 
-## CSV format
+## The CSV
 
-The file must contain an artist column (`artist`, `artists`,
-`artist_name`, `albumartist`, `album artist`) and a title column
-(`title`, `album`, `album_title`, `release`, `name`). Other columns are
-ignored, except `release_date` and `genres`, which are used for the
-summary line at the end. RateYourMusic exports work without changes.
+chartarr needs an artist column (`artist`, `artists`, `artist_name`,
+`albumartist`, `album artist`) and a title column (`title`, `album`,
+`album_title`, `release`, `name`). Everything else is ignored, except
+`release_date` and `genres`, which feed the closing line. A
+RateYourMusic export works as-is.
 
-Rows are tracked by artist and title rather than by position, so you can
-add, remove or reorder lines between runs and each album keeps its own
-match.
+Rows are tracked by artist and title, not by position. Add, remove and
+reorder lines between runs; every album keeps its own match.
+
+## Configuration
+
+The first run asks for your Lidarr URL and API key (Settings > General >
+Security) and stores them in `~/.config/chartarr/config.json`, readable
+only by you. `LIDARR_URL` and `LIDARR_API_KEY` override the file, and the
+`CHARTARR_`-prefixed versions work if the short names are already taken.
+`chartarr --setup` reconfigures.
 
 ## Notes
 
-- A Lidarr album corresponds to a MusicBrainz release group; that is
-  what chartarr matches.
-- Charts write album titles loosely, and MusicBrainz is precise. Live
-  albums and compilations often share a title with the studio record —
-  when one of those wins, chartarr sends the row to review rather than
-  guessing. A title that asks for the live version ("Live at the
-  Apollo") is taken at its word.
-- MusicBrainz allows one request per second per client. Do not run
-  multiple instances at once.
+- A Lidarr album corresponds to a MusicBrainz release group; that's what
+  chartarr matches.
+- Charts write titles loosely and MusicBrainz is precise. When a live
+  album or a compilation shares its title with the studio record, the row
+  goes to review instead of being guessed at. A title that asks for the
+  live version ("Live at the Apollo") is taken at its word.
+- One request per second is the MusicBrainz limit for everybody, so
+  don't run two copies at once.
 
 ## License
 

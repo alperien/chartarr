@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="846" height="436" viewBox="0 0 846 436" font-family="ui-monospace,'SF Mono',Menlo,Consolas,'Liberation Mono','DejaVu Sans Mono',monospace">
+<rect x="0.5" y="0.5" width="845" height="435" rx="10" fill="#0d1017" stroke="rgba(255,255,255,0.09)"/>
+<circle cx="22" cy="20" r="6" fill="#ff5f57"/>
+<circle cx="42" cy="20" r="6" fill="#febc2e"/>
+<circle cx="62" cy="20" r="6" fill="#28c840"/>
+<text x="423.0" y="24.5" text-anchor="middle" font-size="12" fill="#6b7280">chartarr — review</text>
+<g font-size="14" xml:space="preserve">
+<text x="28.4" y="54" textLength="168.0" lengthAdjust="spacingAndGlyphs" fill="#ff005f">review — 5 to decide</text>
+<text x="734.0" y="54" textLength="75.6" lengthAdjust="spacingAndGlyphs" fill="#dbe1ee" fill-opacity="0.5">1 decided</text>
+<text x="45.2" y="92" textLength="226.8" lengthAdjust="spacingAndGlyphs" fill="#dbe1ee">David Bowie — ★ [Blackstar]</text>
+<text x="776.0" y="92" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#dbe1ee">ok</text>
+<text x="45.2" y="111" textLength="369.6" lengthAdjust="spacingAndGlyphs" fill="#dbe1ee">Mingus — The Black Saint and the Sinner Lady</text>
+<text x="776.0" y="111" textLength="8.4" lengthAdjust="spacingAndGlyphs" fill="#dbe1ee" fill-opacity="0.5">·</text>
+<text x="28.4" y="130" textLength="243.6" lengthAdjust="spacingAndGlyphs" fill="#ff005f">&gt; Fiona Apple — When the Pawn</text>
+<text x="776.0" y="130" textLength="8.4" lengthAdjust="spacingAndGlyphs" fill="#dbe1ee" fill-opacity="0.5">·</text>
+<text x="45.2" y="149" textLength="428.4" lengthAdjust="spacingAndGlyphs" fill="#dbe1ee">Fishmans — 98.12.28 Otokotachi no wakare / 98.12.28</text>
+<text x="482.0" y="149" textLength="84.0" lengthAdjust="spacingAndGlyphs" fill="#dbe1ee">男達の別れ</text>
+<text x="776.0" y="149" textLength="8.4" lengthAdjust="spacingAndGlyphs" fill="#dbe1ee" fill-opacity="0.5">·</text>
+<text x="45.2" y="168" textLength="294.0" lengthAdjust="spacingAndGlyphs" fill="#dbe1ee">Godspeed You Black Emperor! — F♯A♯∞</text>
+<text x="776.0" y="168" textLength="8.4" lengthAdjust="spacingAndGlyphs" fill="#dbe1ee" fill-opacity="0.5">·</text>
+<text x="45.2" y="187" textLength="453.6" lengthAdjust="spacingAndGlyphs" fill="#dbe1ee">The Caretaker — Everywhere at the End of Time, Stage 7</text>
+<text x="776.0" y="187" textLength="8.4" lengthAdjust="spacingAndGlyphs" fill="#dbe1ee" fill-opacity="0.5">·</text>
+<text x="53.6" y="339" textLength="411.6" lengthAdjust="spacingAndGlyphs" fill="#dbe1ee">1 Fiona Apple — When the Pawn Hits the Conflicts…</text>
+<text x="482.0" y="339" textLength="84.0" lengthAdjust="spacingAndGlyphs" fill="#dbe1ee">album 1999</text>
+<text x="53.6" y="358" textLength="319.2" lengthAdjust="spacingAndGlyphs" fill="#dbe1ee" fill-opacity="0.5">2 Fiona Apple — Tidal / When the Pawn…</text>
+<text x="389.6" y="358" textLength="84.0" lengthAdjust="spacingAndGlyphs" fill="#dbe1ee" fill-opacity="0.5">album 2000</text>
+<text x="28.4" y="415" textLength="92.4" lengthAdjust="spacingAndGlyphs" fill="#dbe1ee" fill-opacity="0.5">arrows move</text>
+<text x="137.6" y="415" textLength="100.8" lengthAdjust="spacingAndGlyphs" fill="#dbe1ee" fill-opacity="0.5">enter accept</text>
+<text x="255.2" y="415" textLength="67.2" lengthAdjust="spacingAndGlyphs" fill="#dbe1ee" fill-opacity="0.5">1-3 pick</text>
+<text x="339.2" y="415" textLength="50.4" lengthAdjust="spacingAndGlyphs" fill="#dbe1ee" fill-opacity="0.5">s skip</text>
+<text x="406.4" y="415" textLength="50.4" lengthAdjust="spacingAndGlyphs" fill="#dbe1ee" fill-opacity="0.5">u undo</text>
+<text x="473.6" y="415" textLength="100.8" lengthAdjust="spacingAndGlyphs" fill="#dbe1ee" fill-opacity="0.5">a accept all</text>
+<text x="591.2" y="415" textLength="50.4" lengthAdjust="spacingAndGlyphs" fill="#dbe1ee" fill-opacity="0.5">q done</text>
+</g></svg>
