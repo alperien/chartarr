@@ -170,13 +170,19 @@ class Lidarr:
 
     def add_album(self, rgid: str, quality_profile_id: int,
                   metadata_profile_id: int, root_folder: str,
-                  search: bool = False,
                   also_monitor: list[str] | None = None) -> tuple[str, int | None]:
         """add one release group.
 
         returns (outcome, album_id) where outcome is added, monitored or
         skipped. also_monitor lists other release groups by the same artist
         that this run will push, so they survive lidarr's post-add scan.
+
+        adding does not search. lidarr's addOptions.searchForNewAlbum is
+        read by SearchForRecentlyAdded, which ArtistScannedHandler only
+        reaches for an artist with no AddOptions (never the artist this
+        add just created), and the handler clears AddOptions on its way
+        out, so the flag is stored and then dropped (Lidarr#5012). the
+        caller searches explicitly with search_albums instead.
         """
         existing = self.find_album(rgid)
         if existing is not None:
@@ -208,7 +214,9 @@ class Lidarr:
         })
         album["artist"] = artist
         album["monitored"] = True
-        album["addOptions"] = {"searchForNewAlbum": bool(search)}
+        # not searchForNewAlbum: see the docstring. leaving it false also
+        # keeps AddAlbumService from tangling it with searchForMissingAlbums
+        album["addOptions"] = {"searchForNewAlbum": False}
         try:
             created = self._call("album", method="POST", json=album)
         except LidarrError as e:

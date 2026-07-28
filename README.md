@@ -46,6 +46,10 @@ This runs three stages:
    Albums already in Lidarr are skipped; albums Lidarr knows but does
    not monitor are set to monitored. This stage is safe to re-run.
 
+   Monitoring an album does not download it, Lidarr picks monitored
+   albums up on its own schedule. Pass `--search` to have it go looking
+   straight away; without it, chartarr says how many albums are waiting.
+
 When output is piped or no terminal is available, the progress screens
 are replaced by plain line output.
 
@@ -63,7 +67,7 @@ push) on sample data without saving or sending anything.
 
     --dry-run           show what would be pushed without changing anything
     --yes               skip the review stage
-    --search            trigger a Lidarr search for added albums
+    --search            have Lidarr look for the albums and download them
     --match-only        run only the match stage
     --review-only       run only the review stage
     --push-only         run only the push stage
