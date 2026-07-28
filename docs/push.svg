@@ -5,7 +5,7 @@
 <circle cx="62" cy="20" r="6" fill="#28c840"/>
 <text x="423.0" y="24.5" text-anchor="middle" font-size="12" fill="#6b7280">chartarr — pushing to lidarr</text>
 <g font-size="14" xml:space="preserve">
-<text x="28.4" y="54" textLength="142.8" lengthAdjust="spacingAndGlyphs" fill="#ff005f">pushing to lidarr</text>
+<text x="28.4" y="54" textLength="142.8" lengthAdjust="spacingAndGlyphs" fill="#ff5f87">pushing to lidarr</text>
 <text x="700.4" y="54" textLength="109.2" lengthAdjust="spacingAndGlyphs" fill="#dbe1ee" fill-opacity="0.5">about 1s left</text>
 <text x="28.4" y="92" textLength="8.4" lengthAdjust="spacingAndGlyphs" fill="#dbe1ee">[</text>
 <rect x="36.8" y="80.5" width="621.6" height="13.5" fill="#dbe1ee"/>
@@ -21,7 +21,7 @@
 <text x="162.8" y="225" textLength="142.8" lengthAdjust="spacingAndGlyphs" fill="#dbe1ee">Radiohead — Kid A</text>
 <text x="45.2" y="244" textLength="42.0" lengthAdjust="spacingAndGlyphs" fill="#dbe1ee" fill-opacity="0.5">added</text>
 <text x="162.8" y="244" textLength="277.2" lengthAdjust="spacingAndGlyphs" fill="#dbe1ee">The Avalanches — Since I Left You</text>
-<text x="45.2" y="263" textLength="75.6" lengthAdjust="spacingAndGlyphs" fill="#ff005f">monitored</text>
+<text x="45.2" y="263" textLength="75.6" lengthAdjust="spacingAndGlyphs" fill="#ff5f87">monitored</text>
 <text x="162.8" y="263" textLength="226.8" lengthAdjust="spacingAndGlyphs" fill="#dbe1ee">Boards of Canada — Geogaddi</text>
 <text x="45.2" y="282" textLength="42.0" lengthAdjust="spacingAndGlyphs" fill="#dbe1ee" fill-opacity="0.5">added</text>
 <text x="162.8" y="282" textLength="210.0" lengthAdjust="spacingAndGlyphs" fill="#dbe1ee">Sufjan Stevens — Illinois</text>
@@ -39,7 +39,7 @@
 <text x="162.8" y="396" textLength="260.4" lengthAdjust="spacingAndGlyphs" fill="#dbe1ee">Freddie Gibbs &amp; Madlib — Piñata</text>
 <text x="45.2" y="415" textLength="42.0" lengthAdjust="spacingAndGlyphs" fill="#dbe1ee" fill-opacity="0.5">added</text>
 <text x="162.8" y="415" textLength="151.2" lengthAdjust="spacingAndGlyphs" fill="#dbe1ee">Swans — To Be Kind</text>
-<text x="45.2" y="434" textLength="75.6" lengthAdjust="spacingAndGlyphs" fill="#ff005f">monitored</text>
+<text x="45.2" y="434" textLength="75.6" lengthAdjust="spacingAndGlyphs" fill="#ff5f87">monitored</text>
 <text x="162.8" y="434" textLength="302.4" lengthAdjust="spacingAndGlyphs" fill="#dbe1ee">Kendrick Lamar — To Pimp a Butterfly</text>
 <text x="45.2" y="453" textLength="42.0" lengthAdjust="spacingAndGlyphs" fill="#dbe1ee" fill-opacity="0.5">added</text>
 <text x="162.8" y="453" textLength="268.8" lengthAdjust="spacingAndGlyphs" fill="#dbe1ee">Sufjan Stevens — Carrie &amp; Lowell</text>
