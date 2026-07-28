@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="846" height="588" viewBox="0 0 846 588" font-family="ui-monospace,'SF Mono',Menlo,Consolas,'Liberation Mono','DejaVu Sans Mono',monospace">
+<rect x="0.5" y="0.5" width="845" height="587" rx="10" fill="#0d1017" stroke="rgba(255,255,255,0.09)"/>
+<circle cx="22" cy="20" r="6" fill="#ff5f57"/>
+<circle cx="42" cy="20" r="6" fill="#febc2e"/>
+<circle cx="62" cy="20" r="6" fill="#28c840"/>
+<text x="423.0" y="24.5" text-anchor="middle" font-size="12" fill="#6b7280">chartarr — matching against musicbrainz</text>
+<g font-size="14" xml:space="preserve">
+<text x="28.4" y="54" textLength="235.2" lengthAdjust="spacingAndGlyphs" fill="#ff005f">matching against musicbrainz</text>
+<text x="700.4" y="54" textLength="109.2" lengthAdjust="spacingAndGlyphs" fill="#dbe1ee" fill-opacity="0.5">about 1s left</text>
+<text x="28.4" y="92" textLength="8.4" lengthAdjust="spacingAndGlyphs" fill="#dbe1ee">[</text>
+<rect x="36.8" y="80.5" width="436.8" height="13.5" fill="#dbe1ee"/>
+<text x="708.8" y="92" textLength="58.8" lengthAdjust="spacingAndGlyphs" fill="#dbe1ee">] 26/40</text>
+<text x="28.4" y="130" textLength="294.0" lengthAdjust="spacingAndGlyphs" fill="#dbe1ee">matched 22 · review 4 · not found 0</text>
+<text x="45.2" y="168" textLength="50.4" lengthAdjust="spacingAndGlyphs" fill="#ff005f">review</text>
+<text x="162.8" y="168" textLength="226.8" lengthAdjust="spacingAndGlyphs" fill="#dbe1ee">David Bowie — ★ [Blackstar]</text>
+<text x="45.2" y="187" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#dbe1ee" fill-opacity="0.5">ok</text>
+<text x="162.8" y="187" textLength="193.2" lengthAdjust="spacingAndGlyphs" fill="#dbe1ee">Fleetwood Mac — Rumours</text>
+<text x="45.2" y="206" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#dbe1ee" fill-opacity="0.5">ok</text>
+<text x="162.8" y="206" textLength="268.8" lengthAdjust="spacingAndGlyphs" fill="#dbe1ee">Joy Division — Unknown Pleasures</text>
+<text x="45.2" y="225" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#dbe1ee" fill-opacity="0.5">ok</text>
+<text x="162.8" y="225" textLength="260.4" lengthAdjust="spacingAndGlyphs" fill="#dbe1ee">Talking Heads — Remain in Light</text>
+<text x="45.2" y="244" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#dbe1ee" fill-opacity="0.5">ok</text>
+<text x="162.8" y="244" textLength="218.4" lengthAdjust="spacingAndGlyphs" fill="#dbe1ee">Kate Bush — Hounds of Love</text>
+<text x="45.2" y="263" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#dbe1ee" fill-opacity="0.5">ok</text>
+<text x="162.8" y="263" textLength="151.2" lengthAdjust="spacingAndGlyphs" fill="#dbe1ee">Slint — Spiderland</text>
+<text x="45.2" y="282" textLength="50.4" lengthAdjust="spacingAndGlyphs" fill="#ff005f">review</text>
+<text x="162.8" y="282" textLength="369.6" lengthAdjust="spacingAndGlyphs" fill="#dbe1ee">Mingus — The Black Saint and the Sinner Lady</text>
+<text x="45.2" y="301" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#dbe1ee" fill-opacity="0.5">ok</text>
+<text x="162.8" y="301" textLength="252.0" lengthAdjust="spacingAndGlyphs" fill="#dbe1ee">My Bloody Valentine — Loveless</text>
+<text x="45.2" y="320" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#dbe1ee" fill-opacity="0.5">ok</text>
+<text x="162.8" y="320" textLength="344.4" lengthAdjust="spacingAndGlyphs" fill="#dbe1ee">Aphex Twin — Selected Ambient Works 85-92</text>
+<text x="45.2" y="339" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#dbe1ee" fill-opacity="0.5">ok</text>
+<text x="162.8" y="339" textLength="386.4" lengthAdjust="spacingAndGlyphs" fill="#dbe1ee">Wu-Tang Clan — Enter the Wu-Tang (36 Chambers)</text>
+<text x="45.2" y="358" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#dbe1ee" fill-opacity="0.5">ok</text>
+<text x="162.8" y="358" textLength="151.2" lengthAdjust="spacingAndGlyphs" fill="#dbe1ee">Portishead — Dummy</text>
+<text x="45.2" y="377" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#dbe1ee" fill-opacity="0.5">ok</text>
+<text x="162.8" y="377" textLength="193.2" lengthAdjust="spacingAndGlyphs" fill="#dbe1ee">Radiohead — OK Computer</text>
+<text x="45.2" y="396" textLength="50.4" lengthAdjust="spacingAndGlyphs" fill="#ff005f">review</text>
+<text x="162.8" y="396" textLength="226.8" lengthAdjust="spacingAndGlyphs" fill="#dbe1ee">Fiona Apple — When the Pawn</text>
+<text x="45.2" y="415" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#dbe1ee" fill-opacity="0.5">ok</text>
+<text x="162.8" y="415" textLength="420.0" lengthAdjust="spacingAndGlyphs" fill="#dbe1ee">Neutral Milk Hotel — In the Aeroplane Over the Sea</text>
+<text x="45.2" y="434" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#dbe1ee" fill-opacity="0.5">ok</text>
+<text x="162.8" y="434" textLength="210.0" lengthAdjust="spacingAndGlyphs" fill="#dbe1ee">Sigur Rós — Ágætis byrjun</text>
+<text x="45.2" y="453" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#dbe1ee" fill-opacity="0.5">ok</text>
+<text x="162.8" y="453" textLength="302.4" lengthAdjust="spacingAndGlyphs" fill="#dbe1ee">Modest Mouse — The Moon &amp; Antarctica</text>
+<text x="45.2" y="472" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#dbe1ee" fill-opacity="0.5">ok</text>
+<text x="162.8" y="472" textLength="142.8" lengthAdjust="spacingAndGlyphs" fill="#dbe1ee">Radiohead — Kid A</text>
+<text x="45.2" y="491" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#dbe1ee" fill-opacity="0.5">ok</text>
+<text x="162.8" y="491" textLength="277.2" lengthAdjust="spacingAndGlyphs" fill="#dbe1ee">The Avalanches — Since I Left You</text>
+<text x="45.2" y="510" textLength="50.4" lengthAdjust="spacingAndGlyphs" fill="#ff005f">review</text>
+<text x="162.8" y="510" textLength="336.0" lengthAdjust="spacingAndGlyphs" fill="#dbe1ee">Fishmans — 98.12.28 Otokotachi no wakare</text>
+<text x="45.2" y="529" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#dbe1ee" fill-opacity="0.5">ok</text>
+<text x="162.8" y="529" textLength="226.8" lengthAdjust="spacingAndGlyphs" fill="#dbe1ee">Boards of Canada — Geogaddi</text>
+<text x="28.4" y="567" textLength="218.4" lengthAdjust="spacingAndGlyphs" fill="#dbe1ee" fill-opacity="0.5">q stop (progress is saved)</text>
+</g></svg>
