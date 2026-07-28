@@ -106,13 +106,14 @@ def _put(scr, y, x, s, attr=0):
         pass
 
 
-# cherry. 161 (#d7005f) is the closest 256-colour approximation of the fruit
-# (~#d2042d, red with a blue lean rather than an orange one) and is readable
-# on white as well as black, so it's the everyday choice. dark terminals get
-# 197 (#ff005f), the same hue with the brightness turned up, which reads
-# better against black. eight colour terminals get red.
-CHERRY_256 = 161
-CHERRY_BRIGHT_256 = 197
+# cherry, softened. the zero-green shades (161/197) read neon on today's
+# high-gamut displays, so both get one step toward pastel in the 6x6x6
+# cube: green and blue lifted a notch, hue kept. 168 (#d75f87) is the
+# everyday shade and still clears a 3:1 contrast floor on white; dark
+# terminals get 204 (#ff5f87), the same softening applied to the bright
+# one. eight colour terminals get red.
+CHERRY_256 = 168
+CHERRY_BRIGHT_256 = 204
 
 
 def _cherry() -> int:

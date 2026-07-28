@@ -264,7 +264,7 @@ def test_cherry_brightens_on_a_256_colour_dark_terminal(monkeypatch):
 
 
 def test_cherry_settles_on_a_light_background(monkeypatch):
-    # the bright shade is thinner on white; 161 reads better there
+    # the bright shade is thinner on white; the darker one reads better there
     monkeypatch.setattr(screen.curses, "COLORS", 256, raising=False)
     monkeypatch.setenv("COLORFGBG", "0;15")
     assert screen._cherry() == screen.CHERRY_256
