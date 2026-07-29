@@ -151,7 +151,7 @@ def test_hint_waives_only_the_named_type():
 def test_alias_counts_as_title():
     # mb titles bowie's Blackstar "★"; the name every chart uses is only an
     # alias, and releasegroup:"Blackstar" returns just "Blackstar Radio
-    # Edits" — the aliased album must outscore it
+    # Edits"; the aliased album must outscore it
     cands = score_rgs(
         [rg("Blackstar Radio Edits", "David Bowie", "radio-id", ptype="Single"),
          rg("★", "David Bowie", "star-id", aliases=["Blackstar", "★ (Blackstar)"])],

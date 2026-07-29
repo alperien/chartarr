@@ -30,7 +30,7 @@ class LidarrError(Exception):
 def _safe_url(url: str) -> str:
     """the url with any user:password@ removed, for showing in messages.
 
-    a lidarr url can carry basic-auth credentials — behind a reverse proxy
+    a lidarr url can carry basic-auth credentials: behind a reverse proxy
     that asks for them, http://user:pw@host is how you get through. those
     end up in every connection error otherwise, and errors get pasted into
     bug reports.
@@ -98,7 +98,7 @@ class Lidarr:
             r = self.s.request(method, url, timeout=60, **kw)
         except requests.ConnectionError as e:
             raise LidarrError(
-                f"Can't reach Lidarr at {self.shown} — is it running, and is the "
+                f"Can't reach Lidarr at {self.shown}; is it running, and is the "
                 f"URL right? (the address you use in your browser)") from e
         except requests.Timeout as e:
             raise LidarrError(f"Lidarr at {self.shown} timed out.") from e
@@ -106,7 +106,7 @@ class Lidarr:
                 requests.exceptions.MissingSchema,
                 requests.exceptions.InvalidURL) as e:
             raise LidarrError(
-                f"{self.shown} is not a URL Lidarr can be reached at — it needs "
+                f"{self.shown} is not a URL Lidarr can be reached at; it needs "
                 f"to start with http:// or https://") from e
         except requests.RequestException as e:
             # requests quotes the url it was given, credentials and all
@@ -128,7 +128,7 @@ class Lidarr:
             return r.json()
         except ValueError as e:
             raise LidarrError(
-                f"Lidarr returned something that isn't JSON — is {self.shown} "
+                f"Lidarr returned something that isn't JSON; is {self.shown} "
                 f"really Lidarr, and not a login page or another service?") from e
 
     def status(self) -> dict:
@@ -179,8 +179,8 @@ class Lidarr:
 
         adding does not search. lidarr's addOptions.searchForNewAlbum is
         read by SearchForRecentlyAdded, which ArtistScannedHandler only
-        reaches for an artist with no AddOptions — never the artist this
-        add just created — and the handler clears AddOptions on its way
+        reaches for an artist with no AddOptions (never the artist this
+        add just created), and the handler clears AddOptions on its way
         out, so the flag is stored and then dropped (Lidarr#5012). the
         caller searches explicitly with search_albums instead.
         """
@@ -194,7 +194,7 @@ class Lidarr:
         album = self.lookup(rgid)
         if album is None:
             raise LidarrError(
-                "Lidarr's lookup didn't find this MusicBrainz ID — it needs a "
+                "Lidarr's lookup didn't find this MusicBrainz ID; it needs a "
                 "release group ID, not a release ID")
         wanted = [rgid] + [r for r in (also_monitor or []) if r != rgid]
         artist = album["artist"]

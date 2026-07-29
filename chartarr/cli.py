@@ -67,7 +67,7 @@ def status(line: str) -> None:
     if not sys.stdout.isatty():
         return
     width = shutil.get_terminal_size().columns - 1
-    # truncate and pad by display cells, not code points — a cjk label is
+    # truncate and pad by display cells, not code points: a cjk label is
     # wider than len() says, and overflowing the row garbles the redraw
     line = screen._fit(line, width)
     sys.stdout.write("\r" + line + " " * max(0, width - screen.cells(line)))
@@ -119,13 +119,13 @@ def _ask(prompt: str, secret: bool = False) -> str:
         return (getpass.getpass(prompt) if secret else input(prompt)).strip()
     except (EOFError, KeyboardInterrupt):
         print(file=sys.stderr)  # step off the interrupted prompt line
-        fail("setup cancelled — nothing was saved")
+        fail("setup cancelled; nothing was saved")
         return ""  # unreachable; fail() exits
 
 
 def setup_wizard(existing: dict) -> dict:
     if not sys.stdin.isatty():
-        fail("lidarr isn't set up and there's no terminal to ask on — set "
+        fail("lidarr isn't set up and there's no terminal to ask on; set "
              "LIDARR_URL and LIDARR_API_KEY, or run chartarr --setup in a terminal")
     default = existing.get("lidarr_url", "http://localhost:8686")
     url = _ask(f"lidarr url [{default}]: ") or default
@@ -233,7 +233,7 @@ def load_csv(path: Path):
     # python 3.12 stopped rejecting those in the csv reader, so the file
     # parses into gibberish column names instead of failing; say what it is.
     if b"\x00" in head:
-        fail(f'{path} looks like utf-16 (excel\'s "unicode text" export) — '
+        fail(f'{path} looks like utf-16 (excel\'s "unicode text" export); '
              're-save it as "csv utf-8" and rerun')
     try:
         with path.open(newline="", encoding="utf-8-sig") as f:
@@ -241,11 +241,11 @@ def load_csv(path: Path):
             rows = list(reader)
             cols = reader.fieldnames or []
     except UnicodeDecodeError:
-        fail(f"{path} isn't utf-8 — re-save it as utf-8 "
+        fail(f"{path} isn't utf-8; re-save it as utf-8 "
              '(in excel: "csv utf-8") and rerun')
     except csv.Error as e:
-        hint = (' — excel\'s "unicode text" export is utf-16, which does '
-                'this; re-save as "csv utf-8" and rerun'
+        hint = (' (excel\'s "unicode text" export is utf-16, which does '
+                'this; re-save as "csv utf-8" and rerun)'
                 if "NUL" in str(e) else "")
         fail(f"can't parse {path}: {e}{hint}")
     except OSError as e:
@@ -321,12 +321,12 @@ def stage_match(rows, artist_col, title_col, state: State) -> None:
         # don't promise saved progress when the first lookup was the one
         # that failed; there is nothing to resume and saying so is a lie
         done = sum(counts.values()) - sum(base.values())
-        fail("musicbrainz stopped answering — "
+        fail("musicbrainz stopped answering; "
              + (f"the {_n(done, 'row')} matched so far {'is' if done == 1 else 'are'} "
                 "saved, rerun to pick up the rest" if done
                 else "nothing was matched, so nothing was saved; try again later"))
     if stopped:
-        print(dim("stopped — progress is saved, rerun to resume"))
+        print(dim("stopped; progress is saved, rerun to resume"))
         sys.exit(0)
 
 
@@ -338,7 +338,7 @@ def stage_review(rows, artist_col, title_col, state: State) -> None:
     if not pending:
         return
     if not (sys.stdin.isatty() and sys.stdout.isatty()):
-        print(dim(f"{len(pending)} rows need review — rerun in a terminal, "
+        print(dim(f"{len(pending)} rows need review; rerun in a terminal, "
                   f"or use --yes to push without them"))
         return
     review.run(pending, artist_col, title_col, state.add_decision)
@@ -356,7 +356,7 @@ def import_set(rows, state: State) -> list[dict]:
 
     a decision outranks the match result. review only offers uncertain
     rows, but a row can be decided and then match cleanly on a --rematch,
-    and the state file is editable — either way the answer the user gave
+    and the state file is editable; either way the answer the user gave
     is the one they meant, so an explicit skip is honoured on a matched
     row and a re-pick replaces the automatic choice.
     """
@@ -472,14 +472,14 @@ def stage_push(items, artist_col, title_col, args, cfg) -> None:
     elif touched and not args.dry_run:
         # without --search the albums sit there monitored and idle, which
         # looks like a finished job that downloaded nothing
-        print(dim(f"{_n(len(touched), 'album')} monitored but not searched — "
+        print(dim(f"{_n(len(touched), 'album')} monitored but not searched; "
                   f"rerun with --search, or hit Search in lidarr"))
     for f_ in failures[:8]:
         print(dim(f"  {f_}"))
     if len(failures) > 8:
         print(dim(f"  … and {len(failures) - 8} more"))
     if stopped:
-        print(dim("stopped — the push is safe to rerun"))
+        print(dim("stopped; the push is safe to rerun"))
         sys.exit(0)
 
 
@@ -542,10 +542,10 @@ def main(argv=None) -> None:
         try:
             _main(build_parser().parse_args(argv))
         except KeyboardInterrupt:
-            # covers ctrl-c anywhere — csv loading, state replay, a wizard
-            # network call — not just the matching/push loops
+            # covers ctrl-c anywhere (csv loading, state replay, a wizard
+            # network call), not just the matching/push loops
             status_end()
-            print(dim("stopped — progress is saved, rerun to resume"))
+            print(dim("stopped; progress is saved, rerun to resume"))
             sys.exit(130)
         finally:
             # flush inside the try so a closed pipe surfaces here as a
@@ -568,7 +568,7 @@ def _main(args) -> None:
         if p.exists():
             fail("sample.csv already exists here")
         p.write_text(EXAMPLE_CSV, encoding="utf-8")
-        print("wrote sample.csv — try: chartarr sample.csv --dry-run")
+        print("wrote sample.csv; try: chartarr sample.csv --dry-run")
         return
 
     if args.demo:

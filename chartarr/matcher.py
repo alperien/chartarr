@@ -163,7 +163,7 @@ def _first_artist(rg: dict) -> tuple[str | None, str]:
 # same-titled "Fleetwood Mac" rgs). each secondary type costs clearly more
 # than the Album bump (0.03) so a clean studio album always outranks a
 # same-titled flavoured one; ties otherwise favour the fewest secondary
-# types. the penalty lives in the sort key ONLY — confidence/title_sim are
+# types. the penalty lives in the sort key ONLY: confidence/title_sim are
 # untouched, so a legitimately live/soundtrack chart entry that wins its row
 # anyway ("The Last Waltz", "Purple Rain") still clears the auto-match gate.
 _SECONDARY_PENALTY = 0.05
@@ -289,7 +289,7 @@ def match_row(title: str, artist: str) -> dict:
     # alias pass: when the winner is either unproven (fails the auto-match
     # gates) or a flavoured release group the row did not ask for, spend a
     # few lookups confirming aliases for candidates an alias could still
-    # save — right artist, unproven title. this is what lets "Blackstar"
+    # save: right artist, unproven title. this is what lets "Blackstar"
     # auto-match ★ instead of stalling on "Blackstar Radio Edits".
     hinted = _hinted_types(t_vars)
 

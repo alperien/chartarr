@@ -335,7 +335,7 @@ def test_outage_midway_reports_what_it_kept(tmp_path, monkeypatch, capsys):
 
 def test_review_choice_beats_the_auto_match_and_skips_are_dropped(tmp_path):
     # the reviewed pick has to reach lidarr, not the candidate the matcher
-    # led with — that's the whole point of the review screen
+    # led with; that's the whole point of the review screen
     p = _csv(tmp_path, "title,artist\nZiggy Stardust,David Bowie\n"
                        "Kid A,Radiohead\nDummy,Portishead\n")
     rows, _, _ = load_csv(p)

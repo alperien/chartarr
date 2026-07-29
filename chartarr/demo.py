@@ -124,7 +124,7 @@ def run() -> None:
               f"review {cli.accent(counts.get('review', 0))} · "
               f"not found {cli.accent(counts.get('not_found', 0))}")
         if stopped:
-            print(cli.dim("demo over — nothing was saved or sent"))
+            print(cli.dim("demo over; nothing was saved or sent"))
             return
 
         # review, for real
@@ -163,4 +163,4 @@ def run() -> None:
     except KeyboardInterrupt:
         print()
 
-    print(cli.dim("demo over — nothing was saved or sent"))
+    print(cli.dim("demo over; nothing was saved or sent"))

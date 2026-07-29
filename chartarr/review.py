@@ -21,7 +21,7 @@ def run(items, artist_col, title_col, on_decision):
         return
     if not available():
         print(f"this terminal can't draw the review screen "
-              f"(TERM={os.environ.get('TERM', '')!r}) — rerun in a working "
+              f"(TERM={os.environ.get('TERM', '')!r}); rerun in a working "
               f"terminal, or use --yes to push just the confident matches")
         return
     _run(_loop, items, artist_col, title_col, on_decision)

@@ -108,7 +108,7 @@ def test_also_monitor_names_every_sibling_once():
 def test_adding_never_asks_lidarr_to_search():
     # searchForNewAlbum is read by SearchForRecentlyAdded, which
     # ArtistScannedHandler only reaches when the artist has no AddOptions
-    # — never the artist this add just created — and the handler clears
+    # (never the artist this add just created), and the handler clears
     # AddOptions on the way out, so the flag is stored and dropped
     # (Lidarr#5012). searching is the caller's job, via AlbumSearch.
     stage_lookup()
@@ -182,7 +182,7 @@ def test_duplicate_row_already_monitored_is_skipped():
 @responses.activate
 def test_config_400_is_an_error_not_a_duplicate():
     # the original client sniffed the body for "exist", so "Quality Profile
-    # does not exist" — a config mistake — took the duplicate path and died
+    # does not exist" (a config mistake) took the duplicate path and died
     # with a baffling "conflict but album not found afterwards". it must
     # surface as the validation error it is.
     stage_lookup()
@@ -191,7 +191,7 @@ def test_config_400_is_an_error_not_a_duplicate():
                          "errorMessage": "Quality Profile does not exist"}])
     with pytest.raises(LidarrError, match="Quality Profile"):
         add()
-    assert len(responses.calls) == 3  # find, lookup, post — no duplicate dance
+    assert len(responses.calls) == 3  # find, lookup, post; no duplicate dance
 
 
 @responses.activate

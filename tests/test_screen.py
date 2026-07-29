@@ -35,7 +35,7 @@ def _run_probe(code, term):
 def _terminfo_has(term):
     # a SUCCESSFUL curses.setupterm is cached process-wide by cpython
     # (initialised_setupterm), after which every later call succeeds no
-    # matter what TERM says — so positive probes must run in a fresh
+    # matter what TERM says, so positive probes must run in a fresh
     # process, or they poison the TERM=unknown tests below. failures are
     # not cached, so the negative tests are safe in-process.
     return _run_probe(
@@ -195,7 +195,7 @@ def test_nodelay_does_not_survive_into_the_next_session_on_a_real_terminal():
         os.close(master)
         os.close(slave)
     assert proc.returncode == 0, (
-        "the second session's getch did not block — nodelay leaked "
+        "the second session's getch did not block; nodelay leaked "
         f"({proc.stderr.decode()[-300:]})")
 
 

@@ -22,7 +22,7 @@ def available() -> bool:
     back to the plain-line output instead of crashing.
 
     note: cpython caches setupterm's first success process-wide, so this
-    answers for the TERM the process started with — which is the one that
+    answers for the TERM the process started with, which is the one that
     matters. tests that flip TERM must probe in a subprocess.
     """
     if curses is None:
@@ -43,7 +43,7 @@ def _run(func, *args):
 
     # a utf-8 locale makes ncurses draw wide characters correctly, but an
     # LC_ALL this box doesn't know (classic ssh-forwarded locale) must not
-    # kill the screen — degrade toward the C locale instead
+    # kill the screen; degrade toward the C locale instead
     try:
         locale.setlocale(locale.LC_ALL, "")
     except locale.Error:
@@ -56,7 +56,7 @@ def _run(func, *args):
         # every session starts blocking. cpython keeps nodelay on the window
         # itself and curses.wrapper does not reset it between sessions, so
         # the nodelay(True) _progress needs would carry into the review loop
-        # that follows it — whose getch() would then return -1 forever and
+        # that follows it, whose getch() would then return -1 forever and
         # redraw at ~17k frames a second on a pinned core. a screen that
         # wants non-blocking input asks for it, as _progress does.
         try:
@@ -75,7 +75,7 @@ def _cell(ch: str) -> int:
 
 
 def cells(s: str) -> int:
-    """display cells s occupies — the terminal lays out by cell, not code
+    """display cells s occupies: the terminal lays out by cell, not code
     point, and cjk take two, so len() undercounts exactly on the
     dual-script charts this tool is for."""
     return sum(_cell(ch) for ch in s)
@@ -128,7 +128,7 @@ def _dark_background() -> bool:
 
     COLORFGBG is what terminals that care about this set (rxvt, konsole,
     some terminfo-aware setups); "15;0" means light text on dark. absent
-    it, assume dark — the common case, and both shades are readable there.
+    it, assume dark: the common case, and both shades are readable there.
     """
     fgbg = os.environ.get("COLORFGBG", "")
     if ";" in fgbg:

@@ -64,7 +64,7 @@ def item(key, candidates, artist="David Bowie", title="Ziggy Stardust"):
 
 @pytest.fixture(autouse=True)
 def offline_curses(monkeypatch):
-    """the loop's terminal calls, neutered — no initscr, no real screen."""
+    """the loop's terminal calls, neutered: no initscr, no real screen."""
     if review.curses is None:
         pytest.skip("no curses at all")
     monkeypatch.setattr(review.curses, "curs_set", lambda n: None)
@@ -236,7 +236,7 @@ def test_progress_screen_does_not_leave_the_next_session_non_blocking():
 def test_an_empty_read_costs_a_full_redraw():
     """why the flag matters: -1 does nothing but go round again.
 
-    the loop has no idle branch — a non-blocking getch returns -1, falls
+    the loop has no idle branch: a non-blocking getch returns -1, falls
     through every key test, and redraws. that is the spin: on a real
     terminal it ran ~17k times a second until a key arrived.
     """

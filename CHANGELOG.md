@@ -17,7 +17,7 @@ A fix release. The first one is the reason to upgrade.
 
 - **The review screen pinned a CPU core while it waited for you.** The
   progress screens poll for a keypress so they can notice `q` mid-run,
-  and that non-blocking mode stayed on the window afterwards —
+  and that non-blocking mode stayed on the window afterwards:
   `curses.wrapper` does not reset it between screens. The review list,
   which expects to wait for input, read "no key pressed" instead and
   redrew immediately: about 17,000 times a second, for as long as the
@@ -29,8 +29,8 @@ A fix release. The first one is the reason to upgrade.
   decision only otherwise, so a row you skipped that later matched on a
   `--rematch` went to Lidarr anyway, and a re-pick lost to the candidate
   the matcher had led with. A decision now outranks the match result. A
-  matched row carrying no release group id — possible in a state file
-  from an older version — is left out instead of failing at Lidarr's
+  matched row carrying no release group id (possible in a state file
+  from an older version) is left out instead of failing at Lidarr's
   lookup.
 - **One failed search request stranded the albums behind it.** Searches
   go out in batches of a hundred and a failing batch stopped the rest, so
@@ -41,7 +41,7 @@ A fix release. The first one is the reason to upgrade.
 - **A Lidarr URL with credentials in it appeared in error messages.**
   `http://user:pw@host` is how you get through a reverse proxy that asks
   for basic auth, and the whole URL was quoted back in connection errors,
-  timeouts, non-JSON replies and proxy error pages — the kind of text
+  timeouts, non-JSON replies and proxy error pages, the kind of text
   that ends up pasted into a bug report. The password is stripped from
   what's printed; the request still sends it.
 
@@ -51,8 +51,8 @@ A fix release. The first one is the reason to upgrade.
   be permanent for that run: the state file has always understood a
   cleared decision, but nothing could write one.
 - **A push without `--search` now says how many albums are monitored but
-  idle.** Monitoring is not downloading — Lidarr picks monitored albums
-  up on its own schedule — and a run ending "added 40" while nothing
+  idle.** Monitoring is not downloading (Lidarr picks monitored albums
+  up on its own schedule), and a run ending "added 40" while nothing
   downloads reads like a finished job.
 
 ### Changed
@@ -79,7 +79,7 @@ Match a CSV of albums against MusicBrainz, resolve the uncertain ones in a
 review screen, and add the results to Lidarr as monitored albums. Runs in
 three resumable stages and can be stopped and restarted at any point.
 
-Notes for anyone who ran this from git before the release — three fixes
+Notes for anyone who ran this from git before the release. Three fixes
 changed behaviour you may have been affected by:
 
 - **Albums pushed to Lidarr stayed unmonitored.** The artist was added with
@@ -87,7 +87,7 @@ changed behaviour you may have been affected by:
   then, once its background scan finishes, every album of theirs including
   the one just pushed. Verified against Lidarr 3.1.0.4875: a fresh push
   reported "added" and fifteen seconds later nothing was monitored. If you
-  pushed a chart with an earlier build, check Lidarr — those albums are
+  pushed a chart with an earlier build, check Lidarr: those albums are
   probably sitting there unmonitored, and re-running chartarr will fix them.
 - **Editing the CSV between runs mixed up the matches.** Rows were keyed by
   position, so inserting a line at the top shifted every key and each album
