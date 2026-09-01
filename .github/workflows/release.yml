@@ -14,7 +14,7 @@ jobs:
       contents: write  # to attach the built files to the release
     steps:
       - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v9.0.0
+      - uses: astral-sh/setup-uv@v10.0.1
       - run: uv build
       - run: uvx twine check --strict dist/*
       # a wheel on the release page saves anyone who'd rather not install
